@@ -61,6 +61,12 @@ class Database:
             except:
                 pass  # Column already exists
             
+            # Add channel_photo column if it doesn't exist
+            try:
+                await db.execute("ALTER TABLE ads ADD COLUMN channel_photo TEXT")
+            except:
+                pass  # Column already exists
+            
             # Support requests table
             await db.execute("""
                 CREATE TABLE IF NOT EXISTS support_requests (
@@ -71,6 +77,21 @@ class Database:
                     admin_response TEXT,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     responded_at TIMESTAMP,
+                    FOREIGN KEY (user_id) REFERENCES users (user_id)
+                )
+            """)
+            
+            # Spam control table
+            await db.execute("""
+                CREATE TABLE IF NOT EXISTS spam_control (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id INTEGER,
+                    action_type TEXT NOT NULL,
+                    last_action TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    daily_count INTEGER DEFAULT 0,
+                    hourly_count INTEGER DEFAULT 0,
+                    last_reset_date DATE DEFAULT CURRENT_DATE,
+                    last_reset_hour INTEGER DEFAULT 0,
                     FOREIGN KEY (user_id) REFERENCES users (user_id)
                 )
             """)
@@ -90,13 +111,13 @@ class Database:
             """, (user_id, username, first_name, last_name, language_code, is_bot, is_premium, language))
             await db.commit()
     
-    async def create_ad(self, user_id: int, gift_link: str, price: str, description: str = 'توضیحات ندارد', telegram_payment_charge_id: str = None, stars_paid: int = 0) -> int:
+    async def create_ad(self, user_id: int, gift_link: str, price: str, description: str = 'توضیحات ندارد', telegram_payment_charge_id: str = None, stars_paid: int = 0, channel_photo: str = None) -> int:
         """Create a new ad and return its ID"""
         async with aiosqlite.connect(self.db_path) as db:
             cursor = await db.execute("""
-                INSERT INTO ads (user_id, gift_link, price, description, telegram_payment_charge_id, stars_paid)
-                VALUES (?, ?, ?, ?, ?, ?)
-            """, (user_id, gift_link, price, description, telegram_payment_charge_id, stars_paid))
+                INSERT INTO ads (user_id, gift_link, price, description, telegram_payment_charge_id, stars_paid, channel_photo)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+            """, (user_id, gift_link, price, description, telegram_payment_charge_id, stars_paid, channel_photo))
             await db.commit()
             return cursor.lastrowid
     
@@ -310,3 +331,123 @@ class Database:
             """)
             row = await cursor.fetchone()
             return row[0] if row else 0
+    
+    # Spam Control Methods
+    async def check_spam_limit(self, user_id: int, action_type: str, daily_limit: int = None, hourly_limit: int = None, cooldown_seconds: int = None) -> Dict[str, Any]:
+        """Check if user has exceeded spam limits"""
+        async with aiosqlite.connect(self.db_path) as db:
+            db.row_factory = aiosqlite.Row
+            
+            # Get current spam control record
+            cursor = await db.execute("""
+                SELECT * FROM spam_control 
+                WHERE user_id = ? AND action_type = ?
+            """, (user_id, action_type))
+            record = await cursor.fetchone()
+            
+            from datetime import datetime, date
+            import time
+            
+            current_time = datetime.now()
+            current_date = date.today()
+            current_hour = current_time.hour
+            
+            if not record:
+                # Create new record
+                await db.execute("""
+                    INSERT INTO spam_control (user_id, action_type, last_action, daily_count, hourly_count, last_reset_date, last_reset_hour)
+                    VALUES (?, ?, ?, 1, 1, ?, ?)
+                """, (user_id, action_type, current_time, current_date, current_hour))
+                await db.commit()
+                return {'allowed': True, 'reason': None}
+            
+            record = dict(record)
+            last_action = datetime.fromisoformat(record['last_action'])
+            last_reset_date = datetime.strptime(record['last_reset_date'], '%Y-%m-%d').date()
+            last_reset_hour = record['last_reset_hour']
+            
+            # Check cooldown
+            if cooldown_seconds and (current_time - last_action).total_seconds() < cooldown_seconds:
+                remaining = cooldown_seconds - (current_time - last_action).total_seconds()
+                return {'allowed': False, 'reason': 'cooldown', 'remaining_seconds': int(remaining)}
+            
+            # Reset daily count if new day
+            daily_count = record['daily_count']
+            if current_date > last_reset_date:
+                daily_count = 0
+            
+            # Reset hourly count if new hour
+            hourly_count = record['hourly_count']
+            if current_hour != last_reset_hour or current_date > last_reset_date:
+                hourly_count = 0
+            
+            # Check daily limit
+            if daily_limit and daily_count >= daily_limit:
+                return {'allowed': False, 'reason': 'daily_limit', 'limit': daily_limit}
+            
+            # Check hourly limit
+            if hourly_limit and hourly_count >= hourly_limit:
+                return {'allowed': False, 'reason': 'hourly_limit', 'limit': hourly_limit}
+            
+            # Update record
+            await db.execute("""
+                UPDATE spam_control 
+                SET last_action = ?, daily_count = ?, hourly_count = ?, last_reset_date = ?, last_reset_hour = ?
+                WHERE user_id = ? AND action_type = ?
+            """, (current_time, daily_count + 1, hourly_count + 1, current_date, current_hour, user_id, action_type))
+            await db.commit()
+            
+            return {'allowed': True, 'reason': None}
+    
+    async def reset_spam_limits(self, user_id: int, action_type: str = None):
+        """Reset spam limits for a user"""
+        async with aiosqlite.connect(self.db_path) as db:
+            if action_type:
+                await db.execute("""
+                    DELETE FROM spam_control WHERE user_id = ? AND action_type = ?
+                """, (user_id, action_type))
+            else:
+                await db.execute("""
+                    DELETE FROM spam_control WHERE user_id = ?
+                """, (user_id,))
+            await db.commit()
+    
+    async def record_action(self, user_id: int, action_type: str):
+        """Record user action for spam control"""
+        now = datetime.now()
+        today = now.date()
+        current_hour = now.hour
+        
+        async with aiosqlite.connect(self.db_path) as db:
+            # Check if record exists
+            cursor = await db.execute(
+                "SELECT * FROM spam_control WHERE user_id = ? AND action_type = ?",
+                (user_id, action_type)
+            )
+            record = await cursor.fetchone()
+            
+            if record:
+                # Update existing record
+                daily_count = record[3] if record[5] == str(today) else 1
+                hourly_count = record[4] if record[6] == current_hour and record[5] == str(today) else 1
+                
+                if record[5] != str(today):
+                    daily_count = 1
+                if record[6] != current_hour or record[5] != str(today):
+                    hourly_count = 1
+                else:
+                    daily_count += 1
+                    hourly_count += 1
+                
+                await db.execute(
+                    "UPDATE spam_control SET last_action = ?, daily_count = ?, hourly_count = ?, last_reset_date = ?, last_reset_hour = ? WHERE user_id = ? AND action_type = ?",
+                    (now.isoformat(), daily_count, hourly_count, str(today), current_hour, user_id, action_type)
+                )
+            else:
+                # Create new record
+                await db.execute(
+                    "INSERT INTO spam_control (user_id, action_type, last_action, daily_count, hourly_count, last_reset_date, last_reset_hour) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                    (user_id, action_type, now.isoformat(), 1, 1, str(today), current_hour)
+                )
+            
+            await db.commit()

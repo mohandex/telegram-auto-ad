@@ -16,7 +16,7 @@ from aiogram.fsm.storage.memory import MemoryStorage
 from dotenv import load_dotenv
 
 from database import Database
-from translations import get_text, get_language_keyboard, get_main_menu_keyboard, get_back_keyboard, get_admin_response_keyboard, get_super_admin_keyboard, TRANSLATIONS
+from translations import get_text, get_language_keyboard, get_main_menu_keyboard, get_back_keyboard, get_admin_response_keyboard, get_super_admin_keyboard, get_channel_photo_keyboard, get_ad_preview_keyboard, TRANSLATIONS
 
 # Load environment variables
 load_dotenv()
@@ -33,6 +33,12 @@ CHANNEL_ID = os.getenv('CHANNEL_ID')
 CHANNEL_NAME = os.getenv('CHANNEL_NAME')
 STARS_AMOUNT = int(os.getenv('STARS_AMOUNT', 10))
 DATABASE_PATH = os.getenv('DATABASE_PATH', 'ads_bot.db')
+
+# Anti-spam settings
+AD_COOLDOWN_SECONDS = int(os.getenv('AD_COOLDOWN_SECONDS', 30))  # seconds between ad submissions
+AD_DAILY_LIMIT = int(os.getenv('AD_DAILY_LIMIT', 5))  # Maximum ads per day
+SUPPORT_COOLDOWN_SECONDS = int(os.getenv('SUPPORT_COOLDOWN_SECONDS', 60))  # seconds between support messages
+SUPPORT_HOURLY_LIMIT = int(os.getenv('SUPPORT_HOURLY_LIMIT', 3))  # Maximum support requests per hour
 
 # Messages
 WELCOME_MESSAGE = os.getenv('WELCOME_MESSAGE')
@@ -55,6 +61,8 @@ class AdStates(StatesGroup):
     waiting_for_gift_link = State()
     waiting_for_description = State()
     waiting_for_price = State()
+    waiting_for_channel_photo = State()
+    waiting_for_preview_confirmation = State()
     waiting_for_payment = State()
 
 class SupportStates(StatesGroup):
@@ -76,7 +84,7 @@ async def start_handler(message: Message, state: FSMContext):
     # Check if user exists and get their language
     existing_user = await db.get_user(user.id)
     if existing_user:
-        language = existing_user[7] if existing_user[7] else 'fa'  # language is at index 7
+        language = existing_user.get('language', 'fa')  # Get language from dictionary
         # If user already has a language preference, show main menu
         await message.answer(
             get_text('welcome_message', language),
@@ -110,7 +118,28 @@ async def new_ad_handler(message: Message, state: FSMContext):
     """Start new ad creation process - show guide first, then ask for gift link"""
     user_id = message.from_user.id
     user = await db.get_user(user_id)
-    language = user[7] if user and user[7] else 'fa'  # language is at index 7
+    language = user.get('language', 'fa') if user else 'fa'
+    
+    # Check spam limits for ad creation
+    spam_check = await db.check_spam_limit(
+        user_id, 
+        'ad_creation', 
+        daily_limit=AD_DAILY_LIMIT, 
+        cooldown_seconds=AD_COOLDOWN_SECONDS
+    )
+    
+    if not spam_check['allowed']:
+        if spam_check['reason'] == 'cooldown':
+            await message.answer(
+                get_text('spam_cooldown_error', language, seconds=spam_check['remaining_seconds']),
+                reply_markup=get_back_keyboard(language)
+            )
+        elif spam_check['reason'] == 'daily_limit':
+            await message.answer(
+                get_text('spam_daily_limit_error', language, limit=spam_check['limit']),
+                reply_markup=get_back_keyboard(language)
+            )
+        return
     
     # Check if user has username
     if not message.from_user.username:
@@ -119,6 +148,9 @@ async def new_ad_handler(message: Message, state: FSMContext):
             reply_markup=get_back_keyboard(language)
         )
         return
+    
+    # Record the action for spam control
+    await db.record_action(user_id, 'ad_creation')
     
     # Show ad posting guide first
     guide_text = get_text('ad_posting_guide', language)
@@ -261,6 +293,14 @@ async def process_description(message: Message, state: FSMContext):
 @dp.message(StateFilter(AdStates.waiting_for_price))
 async def process_price(message: Message, state: FSMContext):
     """Process price input"""
+    # Check if message has text content
+    if not message.text:
+        # Get user language from database
+        user_id = message.from_user.id
+        language = await db.get_user_language(user_id)
+        await message.answer(get_text('price_request', language))
+        return
+    
     price = message.text.strip()
     user_id = message.from_user.id
     
@@ -292,17 +332,132 @@ async def process_price(message: Message, state: FSMContext):
     
     user_ads[user_id]['price'] = price
     
-    # Create payment invoice
-    await message.answer_invoice(
-        title=get_text('payment_title', language),
-        description=get_text('payment_description', language).format(STARS_AMOUNT),
-        payload=f"ad_payment_{user_id}",
-        provider_token="",  # Empty for Telegram Stars
-        currency="XTR",  # Telegram Stars currency
-        prices=[LabeledPrice(label=get_text('payment_label', language), amount=STARS_AMOUNT)]
+    # Ask for channel photo
+    await message.answer(
+        get_text('channel_photo_request', language),
+        reply_markup=get_channel_photo_keyboard(language)
     )
     
-    await state.set_state(AdStates.waiting_for_payment)
+    await state.set_state(AdStates.waiting_for_channel_photo)
+
+@dp.message(StateFilter(AdStates.waiting_for_channel_photo))
+async def process_channel_photo(message: Message, state: FSMContext):
+    """Process channel photo input or skip"""
+    user_id = message.from_user.id
+    
+    if user_id not in user_ads:
+        # Get user language from database
+        language = await db.get_user_language(user_id)
+        await message.answer(get_text('error_restart', language))
+        await state.clear()
+        return
+    
+    # Get language from state first, then from user_ads as fallback
+    state_data = await state.get_data()
+    language = state_data.get('language')
+    if not language:
+        language = user_ads[user_id].get('language', 'fa')
+    
+    channel_photo = None
+    
+    # Check if user clicked skip button
+    if message.text and message.text == get_text('skip_photo_button', language):
+        channel_photo = None
+    elif message.photo:
+        # Get the largest photo
+        channel_photo = message.photo[-1].file_id
+    else:
+        await message.answer(get_text('invalid_photo', language))
+        return
+    
+    # Store channel photo (or None if skipped)
+    user_ads[user_id]['channel_photo'] = channel_photo
+    
+    # Show ad preview
+    await show_ad_preview(message, state, user_id, language)
+
+async def show_ad_preview(message: Message, state: FSMContext, user_id: int, language: str):
+    """Show ad preview to user for confirmation"""
+    ad_data = user_ads[user_id]
+    
+    # Create preview text
+    preview_text = get_text('ad_preview_text', language)
+    preview_text += f"\n\n📺 {ad_data['gift_link']}"
+    preview_text += f"\n💰 {get_text('price', language)}: {ad_data['price']} TON"
+    
+    description = ad_data.get('description', 'توضیحات ندارد')
+    if description and description != 'توضیحات ندارد':
+        preview_text += f"\n📄 {get_text('description', language)}: {description}"
+    
+    # Send preview with photo if available
+    if ad_data.get('channel_photo'):
+        await message.answer_photo(
+            photo=ad_data['channel_photo'],
+            caption=preview_text,
+            reply_markup=get_ad_preview_keyboard(language)
+        )
+    else:
+        await message.answer(
+            preview_text,
+            reply_markup=get_ad_preview_keyboard(language)
+        )
+    
+    await state.set_state(AdStates.waiting_for_preview_confirmation)
+
+@dp.message(StateFilter(AdStates.waiting_for_preview_confirmation))
+async def process_preview_confirmation(message: Message, state: FSMContext):
+    """Process ad preview confirmation"""
+    user_id = message.from_user.id
+    
+    if user_id not in user_ads:
+        # Get user language from database
+        language = await db.get_user_language(user_id)
+        await message.answer(get_text('error_restart', language))
+        await state.clear()
+        return
+    
+    # Get language from state first, then from user_ads as fallback
+    state_data = await state.get_data()
+    language = state_data.get('language')
+    if not language:
+        language = user_ads[user_id].get('language', 'fa')
+    
+    if message.text == get_text('confirm_ad_button', language):
+        # User confirmed - proceed to payment
+        await message.answer_invoice(
+            title=get_text('payment_title', language),
+            description=get_text('payment_description', language).format(STARS_AMOUNT),
+            payload=f"ad_payment_{user_id}",
+            provider_token="",  # Empty for Telegram Stars
+            currency="XTR",  # Telegram Stars currency
+            prices=[LabeledPrice(label=get_text('payment_label', language), amount=STARS_AMOUNT)]
+        )
+        # Send main menu keyboard separately
+        await message.answer(
+            get_text('payment_sent', language),
+            reply_markup=get_main_menu_keyboard(language)
+        )
+        await state.set_state(AdStates.waiting_for_payment)
+        
+    elif message.text == get_text('edit_ad_button', language):
+        # User wants to edit - go back to gift link
+        await message.answer(
+            get_text('gift_link_request', language),
+            reply_markup=get_back_keyboard(language)
+        )
+        await state.set_state(AdStates.waiting_for_gift_link)
+        
+    elif message.text == get_text('cancel_ad_button', language):
+        # User wants to cancel
+        del user_ads[user_id]
+        await message.answer(
+            get_text('ad_cancelled', language),
+            reply_markup=get_main_menu_keyboard(language)
+        )
+        await state.clear()
+        
+    else:
+        await message.answer(get_text('invalid_choice', language))
 
 @dp.pre_checkout_query()
 async def process_pre_checkout_query(pre_checkout_query: PreCheckoutQuery):
@@ -324,11 +479,12 @@ async def process_successful_payment(message: Message, state: FSMContext):
     ad_data = user_ads[user_id]
     language = ad_data.get('language', 'fa')
     description = ad_data.get('description', 'توضیحات ندارد')
+    channel_photo = ad_data.get('channel_photo')
     
     # Get telegram_payment_charge_id from successful payment
     telegram_payment_charge_id = message.successful_payment.telegram_payment_charge_id
     
-    ad_id = await db.create_ad(user_id, ad_data['gift_link'], ad_data['price'], description, telegram_payment_charge_id, STARS_AMOUNT)
+    ad_id = await db.create_ad(user_id, ad_data['gift_link'], ad_data['price'], description, telegram_payment_charge_id, STARS_AMOUNT, channel_photo)
     await db.update_payment_status(ad_id, 'paid')
     
     # Clean up user data
@@ -349,7 +505,10 @@ async def send_ad_to_admin(ad_id: int):
             logger.error(f"Ad with ID {ad_id} not found")
             return
         
-        user_info = f"👤 کاربر: {ad_data['first_name'] or ''} {ad_data['last_name'] or ''}"
+        # Handle names safely
+        first_name = ad_data.get('first_name') or ''
+        last_name = ad_data.get('last_name') or ''
+        user_info = f"👤 کاربر: {first_name} {last_name}"
         if ad_data['username']:
             user_info += f" (@{ad_data['username']})"
         user_info += f"\n🆔 ID: {ad_data['user_id']}"
@@ -378,15 +537,23 @@ async def send_ad_to_admin(ad_id: int):
             ]
         ])
         
-        # Send to both admin types
+        # Send to both admin types with photo if available
+        channel_photo = ad_data.get('channel_photo')
+        
         try:
-            await bot.send_message(SUPPORT_ADMIN_ID, admin_message, reply_markup=keyboard)
+            if channel_photo:
+                await bot.send_photo(SUPPORT_ADMIN_ID, photo=channel_photo, caption=admin_message, reply_markup=keyboard)
+            else:
+                await bot.send_message(SUPPORT_ADMIN_ID, admin_message, reply_markup=keyboard)
             logger.info(f"Ad {ad_id} sent to SUPPORT_ADMIN_ID: {SUPPORT_ADMIN_ID}")
         except Exception as e:
             logger.error(f"Failed to send ad {ad_id} to SUPPORT_ADMIN_ID {SUPPORT_ADMIN_ID}: {e}")
         
         try:
-            await bot.send_message(SUPER_ADMIN_ID, admin_message, reply_markup=keyboard)
+            if channel_photo:
+                await bot.send_photo(SUPER_ADMIN_ID, photo=channel_photo, caption=admin_message, reply_markup=keyboard)
+            else:
+                await bot.send_message(SUPER_ADMIN_ID, admin_message, reply_markup=keyboard)
             logger.info(f"Ad {ad_id} sent to SUPER_ADMIN_ID: {SUPER_ADMIN_ID}")
         except Exception as e:
             logger.error(f"Failed to send ad {ad_id} to SUPER_ADMIN_ID {SUPER_ADMIN_ID}: {e}")
@@ -412,34 +579,44 @@ async def approve_ad(callback: CallbackQuery):
     await db.update_ad_status(ad_id, 'approved')
     
     # Determine if it's a gift or channel for channel message
-    gift_link = ad_data['gift_link']
-    is_gift = '/nft/' in gift_link
+    gift_link = ad_data.get('gift_link') or 'لینک ندارد'
+    is_gift = '/nft/' in gift_link if gift_link != 'لینک ندارد' else False
     
     # Get description
-    description = ad_data.get('description', 'توضیحات ندارد')
-    description_text = f"\n📝 {description}" if description != 'توضیحات ندارد' else ""
+    description = ad_data.get('description') or 'توضیحات ندارد'
+    description_text = f"\n📝 {description}" if description and description != 'توضیحات ندارد' else ""
+    
+    # Handle all fields safely
+    username = ad_data.get('username') or 'ناشناس'
+    gift_link = ad_data.get('gift_link') or 'لینک ندارد'
+    price = ad_data.get('price') or '0'
     
     if is_gift:
         # Gift message
-        channel_message = f"""🎁 {ad_data['gift_link']}
-💰 Price: {ad_data['price']} TON
-👤 Seller: @{ad_data['username']}{description_text}
+        channel_message = f"""🎁 {gift_link}
+💰 Price: {price} TON
+👤 Seller: @{username}{description_text}
 
 📢 Ad posted on {CHANNEL_NAME}
 
 ⚠️ Only trade on trusted marketplaces like <a href="https://t.me/portals/market?startapp=d15jj7">Portals</a>, <a href="https://t.me/tonnel_network_bot/gifts?startapp=ref_195742142">Tonnel</a>, and <a href="https://t.me/mrkt/app?startapp=195742142">Mrkt</a>!"""
     else:
         # Channel message
-        channel_message = f"""📺 {ad_data['gift_link']}
-💰 Price: {ad_data['price']} TON
-👤 Seller: @{ad_data['username']}{description_text}
+        channel_message = f"""📺 {gift_link}
+💰 Price: {price} TON
+👤 Seller: @{username}{description_text}
 
 📢 Ad posted on {CHANNEL_NAME}
 
 ⚠️ Please verify the channel before joining!"""
     
     try:
-        await bot.send_message(CHANNEL_ID, channel_message, parse_mode='HTML')
+        # Send to channel with photo if available
+        channel_photo = ad_data.get('channel_photo')
+        if channel_photo:
+            await bot.send_photo(CHANNEL_ID, photo=channel_photo, caption=channel_message, parse_mode='HTML')
+        else:
+            await bot.send_message(CHANNEL_ID, channel_message, parse_mode='HTML')
         
         # Notify user
         user_language = await db.get_user_language(ad_data['user_id'])
@@ -448,12 +625,15 @@ async def approve_ad(callback: CallbackQuery):
         
         # Send log to super admin if approved by support admin
         if callback.from_user.id == SUPPORT_ADMIN_ID and SUPER_ADMIN_ID != SUPPORT_ADMIN_ID:
+            # Handle names safely
+            first_name = ad_data.get('first_name') or ''
+            last_name = ad_data.get('last_name') or ''
             admin_log = f"""✅ آگهی تایید شد
 
 📝 لینک: {ad_data['gift_link']}
 📄 توضیحات: {description}
 💰 قیمت: {ad_data['price']} TON
-👤 کاربر: {ad_data['first_name'] or ''} {ad_data['last_name'] or ''} (@{ad_data['username'] or 'ندارد'})
+👤 کاربر: {first_name} {last_name} (@{username})
 🆔 ID: {ad_data['user_id']}
 👨‍💼 تایید شده توسط: {callback.from_user.first_name or ''} ({callback.from_user.id})
 📅 تاریخ: {ad_data['created_at']}"""
@@ -580,12 +760,16 @@ async def process_rejection_reason(message: Message, state: FSMContext):
     # Send log to super admin if rejected by support admin
     if message.from_user.id == SUPPORT_ADMIN_ID and SUPER_ADMIN_ID != SUPPORT_ADMIN_ID:
         description = ad_data.get('description', 'توضیحات ندارد')
+        # Handle username and names safely
+        username = ad_data.get('username') or 'ندارد'
+        first_name = ad_data.get('first_name') or ''
+        last_name = ad_data.get('last_name') or ''
         admin_log = f"""❌ آگهی رد شد
 
 📝 لینک: {ad_data['gift_link']}
 📄 توضیحات: {description}
 💰 قیمت: {ad_data['price']} TON
-👤 کاربر: {ad_data['first_name'] or ''} {ad_data['last_name'] or ''} (@{ad_data['username'] or 'ندارد'})
+👤 کاربر: {first_name} {last_name} (@{username})
 🆔 ID: {ad_data['user_id']}
 📝 دلیل رد: {rejection_reason}
 💸 ریفاند: {'بله' if with_refund else 'خیر'}
@@ -627,6 +811,30 @@ async def support_handler(message: Message, state: FSMContext):
     """Handle support button"""
     user_id = message.from_user.id
     language = await db.get_user_language(user_id)
+    
+    # Check spam limits for support requests
+    spam_check = await db.check_spam_limit(
+        user_id, 
+        'support_request', 
+        hourly_limit=SUPPORT_HOURLY_LIMIT, 
+        cooldown_seconds=SUPPORT_COOLDOWN_SECONDS
+    )
+    
+    if not spam_check['allowed']:
+        if spam_check['reason'] == 'cooldown':
+            await message.answer(
+                get_text('spam_cooldown_error', language, seconds=spam_check['remaining_seconds']),
+                reply_markup=get_back_keyboard(language)
+            )
+        elif spam_check['reason'] == 'hourly_limit':
+            await message.answer(
+                get_text('spam_hourly_limit_error', language, limit=spam_check['limit']),
+                reply_markup=get_back_keyboard(language)
+            )
+        return
+    
+    # Record the action for spam control
+    await db.record_action(user_id, 'support_request')
     
     await message.answer(
         get_text('support_message', language),
