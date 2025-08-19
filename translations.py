@@ -1,6 +1,8 @@
 # Translation system for multi-language bot support
 # Supports Persian (fa), Russian (ru), and English (en)
 
+from aiogram.types import ReplyKeyboardMarkup, KeyboardButton
+
 TRANSLATIONS = {
     # Language selection
     "select_language": {
@@ -341,18 +343,69 @@ def get_text(key: str, lang: str = "fa", **kwargs) -> str:
 
 def get_language_keyboard():
     """
-    Get inline keyboard for language selection
+    Get reply keyboard for language selection
     """
-    from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+    from aiogram.types import ReplyKeyboardMarkup, KeyboardButton
     
-    keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [
-            InlineKeyboardButton(text="🇮🇷 فارسی", callback_data="lang_fa"),
-            InlineKeyboardButton(text="🇷🇺 Русский", callback_data="lang_ru")
+    keyboard = ReplyKeyboardMarkup(
+        keyboard=[
+            [
+                KeyboardButton(text="🇮🇷 فارسی"),
+                KeyboardButton(text="🇷🇺 Русский")
+            ],
+            [
+                KeyboardButton(text="🇺🇸 English")
+            ]
         ],
-        [
-            InlineKeyboardButton(text="🇺🇸 English", callback_data="lang_en")
-        ]
-    ])
+        resize_keyboard=True,
+        one_time_keyboard=True
+    )
     
+    return keyboard
+
+def get_main_menu_keyboard(language='fa'):
+    """
+    Get reply keyboard for main menu
+    """
+    from aiogram.types import ReplyKeyboardMarkup, KeyboardButton
+    
+    keyboard = ReplyKeyboardMarkup(
+        keyboard=[
+            [
+                KeyboardButton(text=get_text('new_ad_button', language)),
+                KeyboardButton(text=get_text('support_button', language))
+            ],
+            [
+                KeyboardButton(text=get_text('change_language_button', language))
+            ]
+        ],
+        resize_keyboard=True
+    )
+    
+    return keyboard
+
+def get_back_keyboard(language='fa'):
+    """
+    Get reply keyboard with back button
+    """
+    from aiogram.types import ReplyKeyboardMarkup, KeyboardButton
+    
+    keyboard = ReplyKeyboardMarkup(
+        keyboard=[
+            [
+                KeyboardButton(text=get_text('back_to_menu_button', language))
+            ]
+        ],
+        resize_keyboard=True
+    )
+    
+    return keyboard
+
+def get_admin_response_keyboard() -> ReplyKeyboardMarkup:
+    """Get admin response keyboard for support"""
+    keyboard = ReplyKeyboardMarkup(
+        keyboard=[[KeyboardButton(text="📝 پاسخ دادن")]],
+        resize_keyboard=True,
+        one_time_keyboard=True
+    )
     return keyboard

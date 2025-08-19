@@ -162,6 +162,19 @@ class Database:
             rows = await cursor.fetchall()
             return [dict(row) for row in rows]
     
+    async def get_support_request_by_id(self, request_id: int) -> Optional[Dict[str, Any]]:
+        """Get support request by ID"""
+        async with aiosqlite.connect(self.db_path) as db:
+            db.row_factory = aiosqlite.Row
+            cursor = await db.execute("""
+                SELECT sr.*, u.username, u.first_name, u.last_name
+                FROM support_requests sr
+                JOIN users u ON sr.user_id = u.user_id
+                WHERE sr.id = ?
+            """, (request_id,))
+            row = await cursor.fetchone()
+            return dict(row) if row else None
+    
     async def respond_to_support_request(self, request_id: int, response: str):
         """Respond to a support request"""
         async with aiosqlite.connect(self.db_path) as db:
@@ -205,6 +218,7 @@ class Database:
     async def get_user_stats(self) -> Dict[str, int]:
         """Get general user statistics"""
         async with aiosqlite.connect(self.db_path) as db:
+            db.row_factory = aiosqlite.Row
             cursor = await db.execute("""
                 SELECT 
                     COUNT(DISTINCT u.user_id) as total_users,

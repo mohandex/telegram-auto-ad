@@ -6,7 +6,7 @@ from typing import Dict, Any
 from aiogram import Bot, Dispatcher, F
 from aiogram.types import (
     Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton,
-    LabeledPrice, PreCheckoutQuery, ContentType
+    LabeledPrice, PreCheckoutQuery, ContentType, ReplyKeyboardMarkup, KeyboardButton
 )
 from aiogram.filters import Command, StateFilter
 from aiogram.fsm.context import FSMContext
@@ -15,7 +15,7 @@ from aiogram.fsm.storage.memory import MemoryStorage
 from dotenv import load_dotenv
 
 from database import Database
-from translations import get_text, get_language_keyboard, TRANSLATIONS
+from translations import get_text, get_language_keyboard, get_main_menu_keyboard, get_back_keyboard, get_admin_response_keyboard, TRANSLATIONS
 
 # Load environment variables
 load_dotenv()
@@ -77,11 +77,7 @@ async def start_handler(message: Message, state: FSMContext):
         # If user already has a language preference, show main menu
         await message.answer(
             get_text('welcome_message', language),
-            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-                [InlineKeyboardButton(text=get_text('new_ad_button', language), callback_data="new_ad")],
-                [InlineKeyboardButton(text=get_text('support_button', language), callback_data="support")],
-                [InlineKeyboardButton(text=get_text('change_language_button', language), callback_data="change_language")]
-            ])
+            reply_markup=get_main_menu_keyboard(language)
         )
     else:
         # New user - ask for language selection first
@@ -105,85 +101,76 @@ async def start_handler(message: Message, state: FSMContext):
     
     await state.clear()
 
-@dp.callback_query(F.data == "new_ad")
-async def new_ad_callback(callback: CallbackQuery, state: FSMContext):
+# Handle text messages for Reply Keyboard
+@dp.message(F.text.in_(["📝 ثبت آگهی جدید", "📝 Разместить новое объявление", "📝 Post New Ad"]))
+async def new_ad_handler(message: Message, state: FSMContext):
     """Start new ad creation process - show guide first, then ask for gift link"""
-    user_id = callback.from_user.id
+    user_id = message.from_user.id
     user = await db.get_user(user_id)
     language = user[7] if user and user[7] else 'en'  # language is at index 7
     
     # Check if user has username
-    if not callback.from_user.username:
-        await callback.message.edit_text(
+    if not message.from_user.username:
+        await message.answer(
             get_text('username_required', language),
-            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-                [InlineKeyboardButton(text=get_text('back_button', language), callback_data="back_to_menu")]
-            ])
+            reply_markup=get_back_keyboard(language)
         )
-        await callback.answer()
         return
     
     # Show ad posting guide first
     guide_text = get_text('ad_posting_guide', language)
     guide_text += "\n\n" + get_text('gift_link_request', language)
     
-    await callback.message.edit_text(
+    await message.answer(
         guide_text,
-        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text=get_text('back_button', language), callback_data="back_to_menu")]
-        ])
+        reply_markup=get_back_keyboard(language)
     )
     # Save language in state for consistency across ad creation process
     await state.update_data(language=language)
     await state.set_state(AdStates.waiting_for_gift_link)
-    await callback.answer()
 
-@dp.callback_query(F.data.startswith("lang_"))
-async def process_language_selection(callback: CallbackQuery, state: FSMContext):
+@dp.message(F.text.in_(["🇮🇷 فارسی", "🇷🇺 Русский", "🇺🇸 English"]))
+async def process_language_selection(message: Message, state: FSMContext):
     """Process language selection (both initial and change)"""
-    language = callback.data.split("_")[1]
-    user_id = callback.from_user.id
+    # Map text to language code
+    language_map = {
+        "🇮🇷 فارسی": "fa",
+        "🇷🇺 Русский": "ru", 
+        "🇺🇸 English": "en"
+    }
+    language = language_map.get(message.text, "fa")
+    user_id = message.from_user.id
     
     # Update user's language preference
     await db.update_user_language(user_id, language)
     
     # Show main menu after language selection
-    await callback.message.edit_text(
+    await message.answer(
         get_text('welcome_message', language),
-        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text=get_text('new_ad_button', language), callback_data="new_ad")],
-            [InlineKeyboardButton(text=get_text('support_button', language), callback_data="support")],
-            [InlineKeyboardButton(text=get_text('change_language_button', language), callback_data="change_language")]
-        ])
+        reply_markup=get_main_menu_keyboard(language)
     )
     await state.clear()
-    await callback.answer()
 
-@dp.callback_query(F.data == "back_to_menu")
-async def back_to_menu(callback: CallbackQuery, state: FSMContext):
+@dp.message(F.text.in_(["🔙 بازگشت به منو", "🔙 Вернуться в меню", "🔙 Back to Menu"]))
+async def back_to_menu_handler(message: Message, state: FSMContext):
     """Return to main menu"""
-    user_id = callback.from_user.id
+    user_id = message.from_user.id
     language = await db.get_user_language(user_id)
     
-    await callback.message.edit_text(
+    await message.answer(
         get_text('welcome_message', language),
-        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text=get_text('new_ad_button', language), callback_data="new_ad")],
-            [InlineKeyboardButton(text=get_text('support_button', language), callback_data="support")],
-            [InlineKeyboardButton(text=get_text('change_language_button', language), callback_data="change_language")]
-        ])
+        reply_markup=get_main_menu_keyboard(language)
     )
     await state.clear()
-    await callback.answer()
 
-@dp.callback_query(F.data == "change_language")
-async def change_language_callback(callback: CallbackQuery, state: FSMContext):
+@dp.message(F.text.in_(["🌐 تغییر زبان", "🌐 Изменить язык", "🌐 Change Language"]))
+async def change_language_handler(message: Message, state: FSMContext):
     """Handle change language button"""
-    await callback.message.edit_text(
+    await message.answer(
         "لطفاً زبان جدید خود را انتخاب کنید:\nPlease select your new language:\nПожалуйста, выберите новый язык:",
         reply_markup=get_language_keyboard()
     )
-    await callback.answer()
+    await state.set_state(AdStates.waiting_for_language)
 
 @dp.message(StateFilter(AdStates.waiting_for_gift_link))
 async def process_gift_link(message: Message, state: FSMContext):
@@ -212,9 +199,7 @@ async def process_gift_link(message: Message, state: FSMContext):
     
     await message.answer(
         get_text('price_request', language),
-        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text=get_text('back_button', language), callback_data="back_to_menu")]
-        ])
+        reply_markup=get_back_keyboard(language)
     )
     await state.set_state(AdStates.waiting_for_price)
 
@@ -392,20 +377,17 @@ async def reject_ad(callback: CallbackQuery):
     await callback.answer("آگهی رد شد.")
 
 # Support handlers
-@dp.callback_query(F.data == "support")
-async def support_callback(callback: CallbackQuery, state: FSMContext):
+@dp.message(F.text.in_(["🆘 پشتیبانی", "🆘 Поддержка", "🆘 Support"]))
+async def support_handler(message: Message, state: FSMContext):
     """Handle support button"""
-    user_id = callback.from_user.id
+    user_id = message.from_user.id
     language = await db.get_user_language(user_id)
     
-    await callback.message.edit_text(
+    await message.answer(
         get_text('support_message', language),
-        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text=get_text('back_button', language), callback_data="back_to_menu")]
-        ])
+        reply_markup=get_back_keyboard(language)
     )
     await state.set_state(SupportStates.waiting_for_support_message)
-    await callback.answer()
 
 @dp.message(StateFilter(SupportStates.waiting_for_support_message))
 async def process_support_message(message: Message, state: FSMContext):
@@ -424,17 +406,16 @@ async def process_support_message(message: Message, state: FSMContext):
     support_message += f"👤 یوزرنیم: @{user.username or 'ندارد'}\n\n"
     support_message += f"💬 پیام:\n{support_text}"
     
-    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+    # Create inline keyboard for admin response
+    inline_keyboard = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="📝 پاسخ دادن", callback_data=f"respond_{request_id}")]
     ])
     
-    await bot.send_message(SUPPORT_ADMIN_ID, support_message, reply_markup=keyboard)
+    await bot.send_message(SUPPORT_ADMIN_ID, support_message, reply_markup=inline_keyboard)
     
     await message.answer(
         get_text('support_sent', user_language),
-        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text=get_text('back_to_menu_button', user_language), callback_data="back_to_menu")]
-        ])
+        reply_markup=get_back_keyboard(user_language)
     )
     await state.clear()
 
@@ -442,10 +423,19 @@ async def process_support_message(message: Message, state: FSMContext):
 async def respond_to_support(callback: CallbackQuery, state: FSMContext):
     """Handle support response"""
     if callback.from_user.id != SUPPORT_ADMIN_ID:
-        await callback.answer(get_text('no_permission', 'fa'), show_alert=True)
+        await callback.answer(get_text('no_permission', 'fa'))
         return
     
+    # Extract request ID from callback data
     request_id = int(callback.data.split("_")[1])
+    
+    # Get the specific support request
+    request = await db.get_support_request_by_id(request_id)
+    if not request:
+        await callback.answer("درخواست پشتیبانی یافت نشد.")
+        return
+    
+    # Use the specific request
     await state.update_data(support_request_id=request_id)
     
     await callback.message.answer(get_text('admin_response_request', 'fa'))
@@ -466,12 +456,7 @@ async def process_admin_response(message: Message, state: FSMContext):
     await db.respond_to_support_request(request_id, response_text)
     
     # Get original request details
-    requests = await db.get_pending_support_requests()
-    original_request = None
-    for req in requests:
-        if req['id'] == request_id:
-            original_request = req
-            break
+    original_request = await db.get_support_request_by_id(request_id)
     
     if original_request:
         # Get user's language and send response
@@ -575,6 +560,7 @@ async def super_admin_panel(message: Message):
     keyboard = [
         [InlineKeyboardButton(text="👥 لیست کاربران", callback_data="list_users")],
         [InlineKeyboardButton(text="🔍 جستجوی کاربر", callback_data="search_user")],
+        [InlineKeyboardButton(text="👤 دیدن اطلاعات کاربر", callback_data="view_user_info")],
         [InlineKeyboardButton(text="📊 آمار تفصیلی", callback_data="detailed_stats")]
     ]
     
@@ -616,6 +602,71 @@ async def search_user_callback(callback: CallbackQuery, state: FSMContext):
     
     await callback.message.answer("🔍 آیدی کاربر را وارد کنید:")
     await state.set_state(AdminStates.waiting_for_user_id)
+    await callback.answer()
+
+@dp.callback_query(F.data == "view_user_info")
+async def view_user_info_callback(callback: CallbackQuery):
+    """View user information with inline buttons"""
+    if callback.from_user.id != SUPER_ADMIN_ID:
+        await callback.answer("دسترسی ندارید.", show_alert=True)
+        return
+    
+    users = await db.get_all_users()
+    
+    if not users:
+        await callback.answer("هیچ کاربری وجود ندارد.", show_alert=True)
+        return
+    
+    # Show first 20 users with inline buttons
+    users_text = "👤 انتخاب کاربر برای مشاهده اطلاعات:\n\n"
+    keyboard = []
+    
+    for i, user in enumerate(users[:20], 1):
+        user_name = f"{user['first_name'] or ''} {user['last_name'] or ''}".strip() or "بدون نام"
+        username = f"@{user['username']}" if user['username'] else "بدون یوزرنیم"
+        
+        button_text = f"{i}. {user_name} ({user['user_id']})"
+        keyboard.append([InlineKeyboardButton(text=button_text, callback_data=f"user_info_{user['user_id']}")])
+    
+    if len(users) > 20:
+        users_text += f"نمایش 20 کاربر اول از {len(users)} کاربر"
+    
+    await callback.message.answer(users_text, reply_markup=InlineKeyboardMarkup(inline_keyboard=keyboard))
+    await callback.answer()
+
+@dp.callback_query(F.data.startswith("user_info_"))
+async def show_user_info(callback: CallbackQuery):
+    """Show detailed user information"""
+    if callback.from_user.id != SUPER_ADMIN_ID:
+        await callback.answer("دسترسی ندارید.", show_alert=True)
+        return
+    
+    # Extract user ID from callback data
+    user_id = int(callback.data.split("_")[2])
+    user_info = await db.get_user_by_id(user_id)
+    
+    if not user_info:
+        await callback.answer("❌ کاربر یافت نشد.", show_alert=True)
+        return
+    
+    info_text = f"👤 اطلاعات کاربر\n\n"
+    info_text += f"🆔 آیدی: {user_info['user_id']}\n"
+    info_text += f"👤 نام: {user_info['first_name'] or ''} {user_info['last_name'] or ''}\n"
+    info_text += f"👤 یوزرنیم: @{user_info['username'] or 'ندارد'}\n"
+    info_text += f"🌐 زبان: {user_info['language_code'] or 'ندارد'}\n"
+    info_text += f"🤖 ربات: {'بله' if user_info['is_bot'] else 'خیر'}\n"
+    info_text += f"⭐ پریمیوم: {'بله' if user_info['is_premium'] else 'خیر'}\n"
+    info_text += f"📅 عضویت: {user_info['created_at'][:10]}\n"
+    info_text += f"🕐 آخرین بازدید: {user_info['last_seen'][:16]}\n\n"
+    info_text += f"📊 آمار:\n"
+    info_text += f"📝 کل آگهی‌ها: {user_info['total_ads']}\n"
+    info_text += f"✅ آگهی‌های تایید شده: {user_info['approved_ads']}\n"
+    info_text += f"🆘 درخواست‌های پشتیبانی: {user_info['support_requests']}\n"
+    
+    # Add back button
+    back_keyboard = [[InlineKeyboardButton(text="🔙 بازگشت به لیست کاربران", callback_data="view_user_info")]]
+    
+    await callback.message.answer(info_text, reply_markup=InlineKeyboardMarkup(inline_keyboard=back_keyboard))
     await callback.answer()
 
 @dp.message(StateFilter(AdminStates.waiting_for_user_id))
