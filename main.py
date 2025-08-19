@@ -52,6 +52,7 @@ db = Database(DATABASE_PATH)
 class AdStates(StatesGroup):
     waiting_for_language = State()
     waiting_for_gift_link = State()
+    waiting_for_description = State()
     waiting_for_price = State()
     waiting_for_payment = State()
 
@@ -61,6 +62,7 @@ class SupportStates(StatesGroup):
 
 class AdminStates(StatesGroup):
     waiting_for_user_id = State()
+    waiting_for_rejection_reason = State()
 
 # User data storage
 user_ads: Dict[int, Dict[str, Any]] = {}
@@ -73,7 +75,7 @@ async def start_handler(message: Message, state: FSMContext):
     # Check if user exists and get their language
     existing_user = await db.get_user(user.id)
     if existing_user:
-        language = existing_user[7] if existing_user[7] else 'en'  # language is at index 7
+        language = existing_user[7] if existing_user[7] else 'fa'  # language is at index 7
         # If user already has a language preference, show main menu
         await message.answer(
             get_text('welcome_message', language),
@@ -107,7 +109,7 @@ async def new_ad_handler(message: Message, state: FSMContext):
     """Start new ad creation process - show guide first, then ask for gift link"""
     user_id = message.from_user.id
     user = await db.get_user(user_id)
-    language = user[7] if user and user[7] else 'en'  # language is at index 7
+    language = user[7] if user and user[7] else 'fa'  # language is at index 7
     
     # Check if user has username
     if not message.from_user.username:
@@ -182,20 +184,71 @@ async def process_gift_link(message: Message, state: FSMContext):
     if not language:
         language = await db.get_user_language(message.from_user.id)
     
-    # Basic validation for Telegram links (gift, NFT, etc.)
-    valid_patterns = [
+    # Basic validation for Telegram links (gift, NFT, channels, etc.)
+    gift_patterns = [
         'https://t.me/nft/',
         't.me/nft/',
         'http://t.me/nft/',
         't.me/nft/'
     ]
     
-    if not any(gift_link.startswith(pattern) for pattern in valid_patterns):
+    channel_patterns = [
+        'https://t.me/',
+        't.me/',
+        'http://t.me/',
+        '@'
+    ]
+    
+    # Check if it's a gift link
+    is_gift = any(gift_link.startswith(pattern) for pattern in gift_patterns)
+    
+    # Check if it's a channel link (but not a gift link)
+    is_channel = False
+    if not is_gift:
+        # Check for channel patterns
+        if gift_link.startswith('@'):
+            is_channel = True
+        elif any(gift_link.startswith(pattern) for pattern in channel_patterns):
+            # Make sure it's not a bot link or other special links
+            if '/nft/' not in gift_link and '_bot' not in gift_link.lower() and '/joinchat/' not in gift_link:
+                is_channel = True
+    
+    if not (is_gift or is_channel):
         await message.answer(get_text('invalid_link', language))
         return
     
     # Store gift link and language
     user_ads[message.from_user.id] = {'gift_link': gift_link, 'language': language}
+    
+    await message.answer(
+        get_text('description_request', language),
+        reply_markup=get_back_keyboard(language)
+    )
+    await state.set_state(AdStates.waiting_for_description)
+
+@dp.message(StateFilter(AdStates.waiting_for_description))
+async def process_description(message: Message, state: FSMContext):
+    """Process description input"""
+    description = message.text.strip()
+    
+    # Get current ad data
+    if message.from_user.id not in user_ads:
+        await message.answer("خطا در پردازش. لطفاً دوباره شروع کنید.")
+        await state.clear()
+        return
+    
+    # Set default description if empty or "بدون توضیح"
+    if not description or description.lower() in ['بدون توضیح', 'no description', 'без описания']:
+        description = "توضیحات ندارد"
+    
+    # Store description
+    user_ads[message.from_user.id]['description'] = description
+    
+    # Get language from state first, then from user_ads as fallback
+    state_data = await state.get_data()
+    language = state_data.get('language')
+    if not language:
+        language = user_ads[message.from_user.id]['language']
     
     await message.answer(
         get_text('price_request', language),
@@ -216,7 +269,11 @@ async def process_price(message: Message, state: FSMContext):
         await state.clear()
         return
     
-    language = user_ads[user_id].get('language', 'fa')
+    # Get language from state first, then from user_ads as fallback
+    state_data = await state.get_data()
+    language = state_data.get('language')
+    if not language:
+        language = user_ads[user_id].get('language', 'fa')
     
     # Validate that price is a number
     try:
@@ -264,7 +321,8 @@ async def process_successful_payment(message: Message, state: FSMContext):
     # Create ad in database
     ad_data = user_ads[user_id]
     language = ad_data.get('language', 'fa')
-    ad_id = await db.create_ad(user_id, ad_data['gift_link'], ad_data['price'])
+    description = ad_data.get('description', 'توضیحات ندارد')
+    ad_id = await db.create_ad(user_id, ad_data['gift_link'], ad_data['price'], description)
     await db.update_payment_status(ad_id, 'paid')
     
     # Clean up user data
@@ -279,32 +337,56 @@ async def process_successful_payment(message: Message, state: FSMContext):
 
 async def send_ad_to_admin(ad_id: int):
     """Send ad to both admin types for approval"""
-    ad_data = await db.get_ad(ad_id)
-    if not ad_data:
-        return
-    
-    user_info = f"👤 کاربر: {ad_data['first_name'] or ''} {ad_data['last_name'] or ''}"
-    if ad_data['username']:
-        user_info += f" (@{ad_data['username']})"
-    user_info += f"\n🆔 ID: {ad_data['user_id']}"
-    
-    admin_message = f"""🆕 آگهی جدید برای تایید:
+    try:
+        ad_data = await db.get_ad(ad_id)
+        if not ad_data:
+            logger.error(f"Ad with ID {ad_id} not found")
+            return
+        
+        user_info = f"👤 کاربر: {ad_data['first_name'] or ''} {ad_data['last_name'] or ''}"
+        if ad_data['username']:
+            user_info += f" (@{ad_data['username']})"
+        user_info += f"\n🆔 ID: {ad_data['user_id']}"
+        
+        # Determine if it's a gift or channel
+        gift_link = ad_data['gift_link']
+        is_gift = '/nft/' in gift_link
+        
+        if is_gift:
+            link_type = "🎁 لینک گیفت"
+        else:
+            link_type = "📺 کانال تلگرام"
+        
+        admin_message = f"""🆕 آگهی جدید برای تایید:
 
 {user_info}
-🎁 لینک گیفت: {ad_data['gift_link']}
+{link_type}: {ad_data['gift_link']}
 💰 قیمت: {ad_data['price']}
+📝 توضیحات: {ad_data.get('description', 'توضیحات ندارد')}
 📅 تاریخ ثبت: {ad_data['created_at']}"""
-    
-    keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [
-            InlineKeyboardButton(text="✅ تایید", callback_data=f"approve_{ad_id}"),
-            InlineKeyboardButton(text="❌ رد", callback_data=f"reject_{ad_id}")
-        ]
-    ])
-    
-    # Send to both admin types
-    await bot.send_message(SUPPORT_ADMIN_ID, admin_message, reply_markup=keyboard)
-    await bot.send_message(SUPER_ADMIN_ID, admin_message, reply_markup=keyboard)
+        
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [
+                InlineKeyboardButton(text="✅ تایید", callback_data=f"approve_{ad_id}"),
+                InlineKeyboardButton(text="❌ رد", callback_data=f"reject_{ad_id}")
+            ]
+        ])
+        
+        # Send to both admin types
+        try:
+            await bot.send_message(SUPPORT_ADMIN_ID, admin_message, reply_markup=keyboard)
+            logger.info(f"Ad {ad_id} sent to SUPPORT_ADMIN_ID: {SUPPORT_ADMIN_ID}")
+        except Exception as e:
+            logger.error(f"Failed to send ad {ad_id} to SUPPORT_ADMIN_ID {SUPPORT_ADMIN_ID}: {e}")
+        
+        try:
+            await bot.send_message(SUPER_ADMIN_ID, admin_message, reply_markup=keyboard)
+            logger.info(f"Ad {ad_id} sent to SUPER_ADMIN_ID: {SUPER_ADMIN_ID}")
+        except Exception as e:
+            logger.error(f"Failed to send ad {ad_id} to SUPER_ADMIN_ID {SUPER_ADMIN_ID}: {e}")
+            
+    except Exception as e:
+        logger.error(f"Error in send_ad_to_admin for ad {ad_id}: {e}")
 
 @dp.callback_query(F.data.startswith("approve_"))
 async def approve_ad(callback: CallbackQuery):
@@ -323,14 +405,32 @@ async def approve_ad(callback: CallbackQuery):
     # Update ad status
     await db.update_ad_status(ad_id, 'approved')
     
-    # Send to channel
-    channel_message = f"""🎁 {ad_data['gift_link']}
+    # Determine if it's a gift or channel for channel message
+    gift_link = ad_data['gift_link']
+    is_gift = '/nft/' in gift_link
+    
+    # Get description
+    description = ad_data.get('description', 'توضیحات ندارد')
+    description_text = f"\n📝 {description}" if description != 'توضیحات ندارد' else ""
+    
+    if is_gift:
+        # Gift message
+        channel_message = f"""🎁 {ad_data['gift_link']}
 💰 Price: {ad_data['price']} TON
-👤 Seller: @{ad_data['username']}
+👤 Seller: @{ad_data['username']}{description_text}
 
 📢 Ad posted on {CHANNEL_NAME}
 
 ⚠️ Only trade on trusted marketplaces like <a href="https://t.me/portals/market?startapp=d15jj7">Portals</a>, <a href="https://t.me/tonnel_network_bot/gifts?startapp=ref_195742142">Tonnel</a>, and <a href="https://t.me/mrkt/app?startapp=195742142">Mrkt</a>!"""
+    else:
+        # Channel message
+        channel_message = f"""📺 {ad_data['gift_link']}
+💰 Price: {ad_data['price']} TON
+👤 Seller: @{ad_data['username']}{description_text}
+
+📢 Ad posted on {CHANNEL_NAME}
+
+⚠️ Please verify the channel before joining!"""
     
     try:
         await bot.send_message(CHANNEL_ID, channel_message, parse_mode='HTML')
@@ -350,8 +450,8 @@ async def approve_ad(callback: CallbackQuery):
     await callback.answer("آگهی تایید شد.")
 
 @dp.callback_query(F.data.startswith("reject_"))
-async def reject_ad(callback: CallbackQuery):
-    """Reject ad"""
+async def reject_ad(callback: CallbackQuery, state: FSMContext):
+    """Start rejection process - ask for reason"""
     if callback.from_user.id not in [SUPPORT_ADMIN_ID, SUPER_ADMIN_ID]:
         await callback.answer("شما مجاز به انجام این عمل نیستید.", show_alert=True)
         return
@@ -363,18 +463,53 @@ async def reject_ad(callback: CallbackQuery):
         await callback.answer("آگهی یافت نشد.", show_alert=True)
         return
     
+    # Store ad_id in state for later use
+    await state.update_data(rejecting_ad_id=ad_id)
+    await state.set_state(AdminStates.waiting_for_rejection_reason)
+    
+    # Ask for rejection reason
+    await callback.message.reply("لطفاً دلیل رد آگهی را وارد کنید (یا 'بدون توضیح' بنویسید):")
+    await callback.answer()
+
+@dp.message(StateFilter(AdminStates.waiting_for_rejection_reason))
+async def process_rejection_reason(message: Message, state: FSMContext):
+    """Process rejection reason and reject the ad"""
+    if message.from_user.id not in [SUPPORT_ADMIN_ID, SUPER_ADMIN_ID]:
+        await message.reply("شما مجاز به انجام این عمل نیستید.")
+        return
+    
+    # Get stored ad_id
+    data = await state.get_data()
+    ad_id = data.get('rejecting_ad_id')
+    
+    if not ad_id:
+        await message.reply("خطا: شناسه آگهی یافت نشد.")
+        await state.clear()
+        return
+    
+    ad_data = await db.get_ad(ad_id)
+    if not ad_data:
+        await message.reply("آگهی یافت نشد.")
+        await state.clear()
+        return
+    
+    # Get rejection reason
+    rejection_reason = message.text.strip()
+    if not rejection_reason or rejection_reason.lower() == 'بدون توضیح':
+        rejection_reason = "توضیحات ندارد"
+    
     # Update ad status
     await db.update_ad_status(ad_id, 'rejected')
     
-    # Notify user
-    await bot.send_message(ad_data['user_id'], AD_REJECTED_MESSAGE)
+    # Notify user with reason
+    user_message = f"{AD_REJECTED_MESSAGE}\n\n📝 دلیل رد: {rejection_reason}"
+    await bot.send_message(ad_data['user_id'], user_message)
     
-    # Update admin message
-    await callback.message.edit_text(
-        callback.message.text + "\n\n❌ رد شد."
-    )
+    # Confirm to admin
+    await message.reply(f"✅ آگهی با موفقیت رد شد.\n📝 دلیل: {rejection_reason}")
     
-    await callback.answer("آگهی رد شد.")
+    # Clear state
+    await state.clear()
 
 # Support handlers
 @dp.message(F.text.in_(["🆘 پشتیبانی", "🆘 Поддержка", "🆘 Support"]))

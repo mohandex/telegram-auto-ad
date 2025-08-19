@@ -33,6 +33,7 @@ class Database:
                     user_id INTEGER,
                     gift_link TEXT NOT NULL,
                     price TEXT NOT NULL,
+                    description TEXT DEFAULT 'توضیحات ندارد',
                     status TEXT DEFAULT 'pending',
                     payment_status TEXT DEFAULT 'unpaid',
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -70,13 +71,13 @@ class Database:
             """, (user_id, username, first_name, last_name, language_code, is_bot, is_premium, language))
             await db.commit()
     
-    async def create_ad(self, user_id: int, gift_link: str, price: str) -> int:
+    async def create_ad(self, user_id: int, gift_link: str, price: str, description: str = 'توضیحات ندارد') -> int:
         """Create a new ad and return its ID"""
         async with aiosqlite.connect(self.db_path) as db:
             cursor = await db.execute("""
-                INSERT INTO ads (user_id, gift_link, price)
-                VALUES (?, ?, ?)
-            """, (user_id, gift_link, price))
+                INSERT INTO ads (user_id, gift_link, price, description)
+                VALUES (?, ?, ?, ?)
+            """, (user_id, gift_link, price, description))
             await db.commit()
             return cursor.lastrowid
     

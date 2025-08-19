@@ -65,9 +65,14 @@ TRANSLATIONS = {
     
     # Ad creation process
     "gift_link_request": {
-        "fa": "🎁 لطفاً لینک گیفت خود را ارسال کنید:",
-        "ru": "🎁 Пожалуйста, отправьте ссылку на ваш подарок:",
-        "en": "🎁 Please send your gift link:"
+        "fa": "🎁 لطفاً لینک گیفت یا کانال تلگرام خود را ارسال کنید:",
+        "ru": "🎁 Пожалуйста, отправьте ссылку на ваш подарок или телеграм канал:",
+        "en": "🎁 Please send your gift link or Telegram channel:"
+    },
+    "description_request": {
+        "fa": "📝 لطفاً توضیحات اضافی برای آگهی خود وارد کنید (مثل تگ‌ها، مقدار گیفت، یا جزئیات کانال):\n\n💡 اگر توضیحی ندارید، 'بدون توضیح' بنویسید:",
+        "ru": "📝 Пожалуйста, введите дополнительное описание для вашего объявления (например, теги, количество подарков или детали канала):\n\n💡 Если у вас нет описания, напишите 'без описания':",
+        "en": "📝 Please enter additional description for your ad (like tags, gift amount, or channel details):\n\n💡 If you have no description, write 'no description':"
     },
     "price_request": {
         "fa": "💰 لطفاً قیمت آگهی خود را وارد کنید (به تون):",
@@ -80,9 +85,9 @@ TRANSLATIONS = {
         "en": "❌ Invalid price entered. Please enter a number."
     },
     "invalid_link": {
-        "fa": "❌ لینک وارد شده معتبر نیست. لطفاً لینک صحیح گیفت ارسال کنید.",
-        "ru": "❌ Введенная ссылка недействительна. Пожалуйста, отправьте правильную ссылку на подарок.",
-        "en": "❌ Invalid link entered. Please send a valid gift link."
+        "fa": "❌ لینک وارد شده معتبر نیست. لطفاً لینک صحیح گیفت یا کانال تلگرام ارسال کنید.",
+        "ru": "❌ Введенная ссылка недействительна. Пожалуйста, отправьте правильную ссылку на подарок или телеграм канал.",
+        "en": "❌ Invalid link entered. Please send a valid gift link or Telegram channel."
     },
     "error_restart": {
         "fa": "❌ خطایی رخ داد. لطفاً دوباره شروع کنید.",
@@ -305,9 +310,9 @@ TRANSLATIONS = {
         "en": "❌ You must have a username to post an ad. Please set a username first."
     },
     "ad_posting_guide": {
-        "fa": "📌 راهنمای ثبت آگهی گیفت\n\n✨ آگهی گیفت خود را تنها در چند مرحله ساده ثبت کنید:\n\n1️⃣ شروع ← روی دکمه \"ثبت آگهی\" کلیک کنید.\n2️⃣ ارسال لینک ← لینک گیفت یا محصول خود را ارسال کنید.\n3️⃣ تعیین قیمت ← قیمت را به تون وارد کنید (مثال: 50 تون).\n4️⃣ پرداخت ← ستاره پرداخت کنید تا آگهی فعال شود.\n5️⃣ تایید و انتشار ← پس از تایید ادمین، آگهی شما در کانال منتشر می‌شود. 🎉\n\n💡 نکته:\nبرای افزایش شانس فروش، می‌توانید همزمان محصول خود را در مارکت‌ های شخص ثالث نیز لیست کنید و اینجا هم آگهی ثبت کنید.\n\n✅ فقط لینک گیفت ارسال کنید.\n⚠️ آگهی‌های اسپم منجر به اخطار و در نهایت مسدودی از کانال می‌شود.",
-        "ru": "📌 Руководство по размещению объявлений о подарках\n\n✨ Разместите свой подарок на продажу всего за несколько простых шагов:\n\n1️⃣ Начало ← Нажмите кнопку \"Разместить объявление\".\n2️⃣ Отправить ссылку ← Отправьте ссылку на ваш подарок или товар.\n3️⃣ Установить цену ← Введите цену в TON (пример: 50 TON).\n4️⃣ Оплата ← Заплатите звезды для активации объявления.\n5️⃣ Одобрение и публикация ← После одобрения администратором ваше объявление будет опубликовано в канале. 🎉\n\n💡 Совет:\nЧтобы увеличить шансы на продажу, вы можете одновременно разместить свой товар на сторонних торговых площадках и также разместить объявление здесь.\n\n✅ Отправляйте только ссылку на подарок.\n⚠️ Спам-объявления приведут к предупреждениям и в конечном итоге к бану с канала.",
-        "en": "📌 Gift Ad Posting Guide\n\n✨ Post your gift for sale in just a few simple steps:\n\n1️⃣ Start → Click on the \"Post Ad\" button.\n2️⃣ Send Link → Submit the link of your gift or product.\n3️⃣ Set Price → Enter the price in TON (example: 50 TON).\n4️⃣ Payment → Pay stars to activate your ad.\n5️⃣ Approval & Publish → After admin approval, your ad will be published in the channel. 🎉\n\n💡 Tip:\nTo increase your chances of selling, you can list your product on third-party marketplaces at the same time and also post an ad here.\n\n✅ Only send the gift link.\n⚠️ Spam ads will result in warnings and eventually a ban from the channel."
+        "fa": "📌 راهنمای ثبت آگهی\n\n✨ آگهی گیفت یا کانال خود را تنها در چند مرحله ساده ثبت کنید:\n\n1️⃣ شروع ← روی دکمه \"ثبت آگهی\" کلیک کنید.\n2️⃣ ارسال لینک ← لینک گیفت یا کانال تلگرام خود را ارسال کنید.\n3️⃣ تعیین قیمت ← قیمت را به تون وارد کنید (مثال: 50 TON).\n4️⃣ پرداخت ← هزینه انتشار آگهی را پرداخت کنید.\n5️⃣ تایید ← منتظر تایید ادمین باشید.\n\n⚠️ توجه: فقط لینک‌های معتبر گیفت تلگرام و کانال‌های تلگرام پذیرفته می‌شود.",
+        "ru": "📌 Руководство по размещению объявлений\n\n✨ Разместите свой подарок или канал на продажу всего за несколько простых шагов:\n\n1️⃣ Начало ← Нажмите кнопку \"Разместить объявление\".\n2️⃣ Отправить ссылку ← Отправьте ссылку на ваш подарок или телеграм канал.\n3️⃣ Установить цену ← Введите цену в TON (пример: 50 TON).\n4️⃣ Оплата ← Оплатите стоимость размещения объявления.\n5️⃣ Одобрение ← Дождитесь одобрения администратором.\n\n⚠️ Внимание: Принимаются только действительные ссылки на подарки Telegram и каналы Telegram.",
+        "en": "📌 Ad Posting Guide\n\n✨ Post your gift or channel for sale in just a few simple steps:\n\n1️⃣ Start → Click on the \"Post Ad\" button.\n2️⃣ Send Link → Submit the link of your gift or Telegram channel.\n3️⃣ Set Price → Enter the price in TON (example: 50 TON).\n4️⃣ Payment → Pay the ad posting fee.\n5️⃣ Approval → Wait for admin approval.\n\n⚠️ Note: Only valid Telegram gift links and Telegram channels are accepted."
     }
 }
 
