@@ -313,6 +313,28 @@ TRANSLATIONS = {
         "fa": "📌 راهنمای ثبت آگهی\n\n✨ آگهی گیفت یا کانال خود را تنها در چند مرحله ساده ثبت کنید:\n\n1️⃣ شروع ← روی دکمه \"ثبت آگهی\" کلیک کنید.\n2️⃣ ارسال لینک ← لینک گیفت یا کانال تلگرام خود را ارسال کنید.\n3️⃣ تعیین قیمت ← قیمت را به تون وارد کنید (مثال: 50 TON).\n4️⃣ پرداخت ← هزینه انتشار آگهی را پرداخت کنید.\n5️⃣ تایید ← منتظر تایید ادمین باشید.\n\n⚠️ توجه: فقط لینک‌های معتبر گیفت تلگرام و کانال‌های تلگرام پذیرفته می‌شود.",
         "ru": "📌 Руководство по размещению объявлений\n\n✨ Разместите свой подарок или канал на продажу всего за несколько простых шагов:\n\n1️⃣ Начало ← Нажмите кнопку \"Разместить объявление\".\n2️⃣ Отправить ссылку ← Отправьте ссылку на ваш подарок или телеграм канал.\n3️⃣ Установить цену ← Введите цену в TON (пример: 50 TON).\n4️⃣ Оплата ← Оплатите стоимость размещения объявления.\n5️⃣ Одобрение ← Дождитесь одобрения администратором.\n\n⚠️ Внимание: Принимаются только действительные ссылки на подарки Telegram и каналы Telegram.",
         "en": "📌 Ad Posting Guide\n\n✨ Post your gift or channel for sale in just a few simple steps:\n\n1️⃣ Start → Click on the \"Post Ad\" button.\n2️⃣ Send Link → Submit the link of your gift or Telegram channel.\n3️⃣ Set Price → Enter the price in TON (example: 50 TON).\n4️⃣ Payment → Pay the ad posting fee.\n5️⃣ Approval → Wait for admin approval.\n\n⚠️ Note: Only valid Telegram gift links and Telegram channels are accepted."
+    },
+    
+    # Super Admin Menu Buttons
+    "super_admin_menu_button": {
+        "fa": "👑 پنل سوپر ادمین",
+        "ru": "👑 Панель супер администратора",
+        "en": "👑 Super Admin Panel"
+    },
+    "view_user_info_button": {
+        "fa": "👤 دیدن اطلاعات کاربر",
+        "ru": "👤 Просмотр информации о пользователе",
+        "en": "👤 View User Info"
+    },
+    "refund_all_stars_button": {
+        "fa": "💰 ریفاند کلی استارز",
+        "ru": "💰 Возврат всех звезд",
+        "en": "💰 Refund All Stars"
+    },
+    "detailed_stats_button": {
+        "fa": "📊 آمار تفصیلی",
+        "ru": "📊 Подробная статистика",
+        "en": "📊 Detailed Statistics"
     }
 }
 
@@ -413,4 +435,32 @@ def get_admin_response_keyboard() -> ReplyKeyboardMarkup:
         resize_keyboard=True,
         one_time_keyboard=True
     )
+    return keyboard
+
+def get_super_admin_keyboard(language='fa'):
+    """
+    Get reply keyboard for super admin menu
+    """
+    from aiogram.types import ReplyKeyboardMarkup, KeyboardButton
+    
+    keyboard = ReplyKeyboardMarkup(
+        keyboard=[
+            [
+                KeyboardButton(text=get_text('list_users', language)),
+                KeyboardButton(text=get_text('search_user', language))
+            ],
+            [
+                KeyboardButton(text=get_text('view_user_info_button', language)),
+                KeyboardButton(text=get_text('detailed_stats_button', language))
+            ],
+            [
+                KeyboardButton(text=get_text('refund_all_stars_button', language))
+            ],
+            [
+                KeyboardButton(text=get_text('back_to_menu_button', language))
+            ]
+        ],
+        resize_keyboard=True
+    )
+    
     return keyboard

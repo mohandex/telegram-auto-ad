@@ -16,7 +16,7 @@ from aiogram.fsm.storage.memory import MemoryStorage
 from dotenv import load_dotenv
 
 from database import Database
-from translations import get_text, get_language_keyboard, get_main_menu_keyboard, get_back_keyboard, get_admin_response_keyboard, TRANSLATIONS
+from translations import get_text, get_language_keyboard, get_main_menu_keyboard, get_back_keyboard, get_admin_response_keyboard, get_super_admin_keyboard, TRANSLATIONS
 
 # Load environment variables
 load_dotenv()
@@ -160,6 +160,7 @@ async def back_to_menu_handler(message: Message, state: FSMContext):
     user_id = message.from_user.id
     language = await db.get_user_language(user_id)
     
+    # If super admin, show main menu instead of super admin panel
     await message.answer(
         get_text('welcome_message', language),
         reply_markup=get_main_menu_keyboard(language)
@@ -327,7 +328,7 @@ async def process_successful_payment(message: Message, state: FSMContext):
     # Get telegram_payment_charge_id from successful payment
     telegram_payment_charge_id = message.successful_payment.telegram_payment_charge_id
     
-    ad_id = await db.create_ad(user_id, ad_data['gift_link'], ad_data['price'], description, telegram_payment_charge_id)
+    ad_id = await db.create_ad(user_id, ad_data['gift_link'], ad_data['price'], description, telegram_payment_charge_id, STARS_AMOUNT)
     await db.update_payment_status(ad_id, 'paid')
     
     # Clean up user data
@@ -796,25 +797,123 @@ async def super_admin_panel(message: Message):
     if message.from_user.id != SUPER_ADMIN_ID:
         return
     
+    # Get user language
+    user = await db.get_user(message.from_user.id)
+    language = user.get('language', 'fa') if user else 'fa'
+    
     stats = await db.get_user_stats()
     
-    panel_text = "👑 پنل سوپر ادمین\n\n"
-    panel_text += f"👥 کل کاربران: {stats.get('total_users', 0)}\n"
+    panel_text = get_text('super_admin_panel', language)
+    panel_text += f"\n\n👥 کل کاربران: {stats.get('total_users', 0)}\n"
     panel_text += f"📝 کل آگهی‌ها: {stats.get('total_ads', 0)}\n"
     panel_text += f"✅ آگهی‌های تایید شده: {stats.get('approved_ads', 0)}\n"
     panel_text += f"⏳ آگهی‌های در انتظار: {stats.get('pending_ads', 0)}\n"
     panel_text += f"🆘 درخواست‌های پشتیبانی: {stats.get('total_support_requests', 0)}\n"
     panel_text += f"⏳ درخواست‌های در انتظار: {stats.get('pending_support_requests', 0)}\n\n"
     
+    keyboard = get_super_admin_keyboard(language)
+    
+    await message.answer(panel_text, reply_markup=keyboard)
+
+# Super Admin Reply Keyboard Handlers
+@dp.message(F.text.in_(["👥 لیست کاربران", "👥 Список пользователей", "👥 List Users"]))
+async def list_users_message(message: Message):
+    """List users via reply keyboard"""
+    if message.from_user.id != SUPER_ADMIN_ID:
+        return
+    
+    users = await db.get_all_users()
+    
+    if not users:
+        await message.answer("هیچ کاربری وجود ندارد.")
+        return
+    
+    # Show first 10 users
+    users_text = "👥 لیست کاربران (10 کاربر اول):\n\n"
+    
+    for i, user in enumerate(users[:10], 1):
+        users_text += f"{i}. {user['first_name'] or ''} {user['last_name'] or ''}\n"
+        users_text += f"   🆔 {user['user_id']} | @{user['username'] or 'ندارد'}\n"
+        users_text += f"   📅 {user['created_at'][:10]}\n\n"
+    
+    if len(users) > 10:
+        users_text += f"... و {len(users) - 10} کاربر دیگر"
+    
+    await message.answer(users_text)
+
+@dp.message(F.text.in_(["🔍 جستجوی کاربر", "🔍 Поиск пользователя", "🔍 Search User"]))
+async def search_user_message(message: Message, state: FSMContext):
+    """Search user via reply keyboard"""
+    if message.from_user.id != SUPER_ADMIN_ID:
+        return
+    
+    await message.answer("🔍 لطفاً ID کاربر مورد نظر را وارد کنید:")
+    await state.set_state(AdminStates.waiting_for_user_id)
+
+@dp.message(F.text.in_(["👤 دیدن اطلاعات کاربر", "👤 Просмотр информации о пользователе", "👤 View User Info"]))
+async def view_user_info_message(message: Message):
+    """View user info via reply keyboard"""
+    if message.from_user.id != SUPER_ADMIN_ID:
+        return
+    
+    users = await db.get_all_users()
+    
+    if not users:
+        await message.answer("هیچ کاربری وجود ندارد.")
+        return
+    
+    # Show users with inline keyboard for selection
+    keyboard = []
+    for user in users[:20]:  # Show first 20 users
+        name = f"{user['first_name'] or ''} {user['last_name'] or ''}" or f"User {user['user_id']}"
+        keyboard.append([InlineKeyboardButton(text=f"{name[:30]}...", callback_data=f"user_info_{user['user_id']}")])
+    
+    await message.answer("👤 انتخاب کاربر برای مشاهده اطلاعات:", reply_markup=InlineKeyboardMarkup(inline_keyboard=keyboard))
+
+@dp.message(F.text.in_(["💰 ریفاند کلی استارز", "💰 Возврат всех звезд", "💰 Refund All Stars"]))
+async def refund_all_stars_message(message: Message):
+    """Refund all stars via reply keyboard"""
+    if message.from_user.id != SUPER_ADMIN_ID:
+        return
+    
+    # Get total stars to refund
+    total_stars = await db.get_total_stars_paid()
+    
+    if total_stars == 0:
+        await message.answer("💰 هیچ ستاره‌ای برای ریفاند وجود ندارد.")
+        return
+    
     keyboard = [
-        [InlineKeyboardButton(text="👥 لیست کاربران", callback_data="list_users")],
-        [InlineKeyboardButton(text="🔍 جستجوی کاربر", callback_data="search_user")],
-        [InlineKeyboardButton(text="👤 دیدن اطلاعات کاربر", callback_data="view_user_info")],
-        [InlineKeyboardButton(text="💰 ریفاند کلی استارز", callback_data="refund_all_stars")],
-        [InlineKeyboardButton(text="📊 آمار تفصیلی", callback_data="detailed_stats")]
+        [InlineKeyboardButton(text="✅ تایید ریفاند", callback_data="confirm_refund_all")],
+        [InlineKeyboardButton(text="❌ لغو", callback_data="cancel_refund_all")]
     ]
     
-    await message.answer(panel_text, reply_markup=InlineKeyboardMarkup(inline_keyboard=keyboard))
+    await message.answer(
+        f"⚠️ آیا مطمئن هستید که می‌خواهید {total_stars} ستاره را به تمام کاربران ریفاند کنید؟\n\n"
+        "این عمل غیرقابل بازگشت است!",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=keyboard)
+    )
+
+@dp.message(F.text.in_(["📊 آمار تفصیلی", "📊 Подробная статистика", "📊 Detailed Statistics"]))
+async def detailed_stats_message(message: Message):
+    """Show detailed statistics via reply keyboard"""
+    if message.from_user.id != SUPER_ADMIN_ID:
+        return
+    
+    stats = await db.get_user_stats()
+    total_stars = await db.get_total_stars_paid()
+    
+    stats_text = "📊 آمار تفصیلی سیستم\n\n"
+    stats_text += f"👥 کل کاربران: {stats.get('total_users', 0)}\n"
+    stats_text += f"📝 کل آگهی‌ها: {stats.get('total_ads', 0)}\n"
+    stats_text += f"✅ آگهی‌های تایید شده: {stats.get('approved_ads', 0)}\n"
+    stats_text += f"❌ آگهی‌های رد شده: {stats.get('rejected_ads', 0)}\n"
+    stats_text += f"⏳ آگهی‌های در انتظار: {stats.get('pending_ads', 0)}\n"
+    stats_text += f"🆘 کل درخواست‌های پشتیبانی: {stats.get('total_support_requests', 0)}\n"
+    stats_text += f"⏳ درخواست‌های پشتیبانی در انتظار: {stats.get('pending_support_requests', 0)}\n"
+    stats_text += f"💰 کل ستاره‌های پرداخت شده: {total_stars}\n"
+    
+    await message.answer(stats_text)
 
 @dp.callback_query(F.data == "list_users")
 async def list_users(callback: CallbackQuery):

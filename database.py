@@ -49,6 +49,12 @@ class Database:
             except:
                 pass  # Column already exists
             
+            # Add stars_paid column if it doesn't exist
+            try:
+                await db.execute("ALTER TABLE ads ADD COLUMN stars_paid INTEGER DEFAULT 0")
+            except:
+                pass  # Column already exists
+            
             # Add refund_status column if it doesn't exist
             try:
                 await db.execute("ALTER TABLE ads ADD COLUMN refund_status TEXT DEFAULT 'not_refunded'")
@@ -84,13 +90,13 @@ class Database:
             """, (user_id, username, first_name, last_name, language_code, is_bot, is_premium, language))
             await db.commit()
     
-    async def create_ad(self, user_id: int, gift_link: str, price: str, description: str = 'توضیحات ندارد', telegram_payment_charge_id: str = None) -> int:
+    async def create_ad(self, user_id: int, gift_link: str, price: str, description: str = 'توضیحات ندارد', telegram_payment_charge_id: str = None, stars_paid: int = 0) -> int:
         """Create a new ad and return its ID"""
         async with aiosqlite.connect(self.db_path) as db:
             cursor = await db.execute("""
-                INSERT INTO ads (user_id, gift_link, price, description, telegram_payment_charge_id)
-                VALUES (?, ?, ?, ?, ?)
-            """, (user_id, gift_link, price, description, telegram_payment_charge_id))
+                INSERT INTO ads (user_id, gift_link, price, description, telegram_payment_charge_id, stars_paid)
+                VALUES (?, ?, ?, ?, ?, ?)
+            """, (user_id, gift_link, price, description, telegram_payment_charge_id, stars_paid))
             await db.commit()
             return cursor.lastrowid
     
@@ -268,16 +274,17 @@ class Database:
             row = await cursor.fetchone()
             return row[0] if row else 'fa'  # Default to Persian
     
-    async def get_user(self, user_id: int) -> Optional[tuple]:
-        """Get user by ID - returns tuple for compatibility"""
+    async def get_user(self, user_id: int) -> Optional[Dict[str, Any]]:
+        """Get user by ID - returns dictionary"""
         async with aiosqlite.connect(self.db_path) as db:
+            db.row_factory = aiosqlite.Row
             cursor = await db.execute("""
                 SELECT user_id, username, first_name, last_name, language_code, 
                        is_bot, is_premium, language, created_at, last_seen
                 FROM users WHERE user_id = ?
             """, (user_id,))
             row = await cursor.fetchone()
-            return row if row else None
+            return dict(row) if row else None
     
     async def get_all_paid_ads(self) -> List[Dict[str, Any]]:
         """Get all paid ads with telegram_payment_charge_id"""
@@ -292,3 +299,14 @@ class Database:
             """)
             rows = await cursor.fetchall()
             return [dict(row) for row in rows]
+    
+    async def get_total_stars_paid(self) -> int:
+        """Get total stars paid for all ads"""
+        async with aiosqlite.connect(self.db_path) as db:
+            cursor = await db.execute("""
+                SELECT COALESCE(SUM(stars_paid), 0) as total
+                FROM ads 
+                WHERE payment_status = 'paid' AND telegram_payment_charge_id IS NOT NULL
+            """)
+            row = await cursor.fetchone()
+            return row[0] if row else 0
