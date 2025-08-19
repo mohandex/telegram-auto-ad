@@ -79,7 +79,8 @@ async def start_handler(message: Message, state: FSMContext):
             get_text('welcome_message', language),
             reply_markup=InlineKeyboardMarkup(inline_keyboard=[
                 [InlineKeyboardButton(text=get_text('new_ad_button', language), callback_data="new_ad")],
-                [InlineKeyboardButton(text=get_text('support_button', language), callback_data="support")]
+                [InlineKeyboardButton(text=get_text('support_button', language), callback_data="support")],
+                [InlineKeyboardButton(text=get_text('change_language_button', language), callback_data="change_language")]
             ])
         )
     else:
@@ -132,12 +133,14 @@ async def new_ad_callback(callback: CallbackQuery, state: FSMContext):
             [InlineKeyboardButton(text=get_text('back_button', language), callback_data="back_to_menu")]
         ])
     )
+    # Save language in state for consistency across ad creation process
+    await state.update_data(language=language)
     await state.set_state(AdStates.waiting_for_gift_link)
     await callback.answer()
 
 @dp.callback_query(F.data.startswith("lang_"))
 async def process_language_selection(callback: CallbackQuery, state: FSMContext):
-    """Process initial language selection"""
+    """Process language selection (both initial and change)"""
     language = callback.data.split("_")[1]
     user_id = callback.from_user.id
     
@@ -149,7 +152,8 @@ async def process_language_selection(callback: CallbackQuery, state: FSMContext)
         get_text('welcome_message', language),
         reply_markup=InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text=get_text('new_ad_button', language), callback_data="new_ad")],
-            [InlineKeyboardButton(text=get_text('support_button', language), callback_data="support")]
+            [InlineKeyboardButton(text=get_text('support_button', language), callback_data="support")],
+            [InlineKeyboardButton(text=get_text('change_language_button', language), callback_data="change_language")]
         ])
     )
     await state.clear()
@@ -165,10 +169,20 @@ async def back_to_menu(callback: CallbackQuery, state: FSMContext):
         get_text('welcome_message', language),
         reply_markup=InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text=get_text('new_ad_button', language), callback_data="new_ad")],
-            [InlineKeyboardButton(text=get_text('support_button', language), callback_data="support")]
+            [InlineKeyboardButton(text=get_text('support_button', language), callback_data="support")],
+            [InlineKeyboardButton(text=get_text('change_language_button', language), callback_data="change_language")]
         ])
     )
     await state.clear()
+    await callback.answer()
+
+@dp.callback_query(F.data == "change_language")
+async def change_language_callback(callback: CallbackQuery, state: FSMContext):
+    """Handle change language button"""
+    await callback.message.edit_text(
+        "لطفاً زبان جدید خود را انتخاب کنید:\nPlease select your new language:\nПожалуйста, выберите новый язык:",
+        reply_markup=get_language_keyboard()
+    )
     await callback.answer()
 
 @dp.message(StateFilter(AdStates.waiting_for_gift_link))
@@ -176,7 +190,10 @@ async def process_gift_link(message: Message, state: FSMContext):
     """Process gift link input"""
     gift_link = message.text.strip()
     state_data = await state.get_data()
-    language = state_data.get('language', 'fa')
+    # Get language from state, if not available get from database
+    language = state_data.get('language')
+    if not language:
+        language = await db.get_user_language(message.from_user.id)
     
     # Basic validation for Telegram links (gift, NFT, etc.)
     valid_patterns = [

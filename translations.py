@@ -55,6 +55,11 @@ TRANSLATIONS = {
         "ru": "🔙 Назад",
         "en": "🔙 Back"
     },
+    "change_language_button": {
+        "fa": "🌐 تغییر زبان",
+        "ru": "🌐 Изменить язык",
+        "en": "🌐 Change Language"
+    },
     
     # Ad creation process
     "gift_link_request": {
@@ -65,7 +70,7 @@ TRANSLATIONS = {
     "price_request": {
         "fa": "💰 لطفاً قیمت آگهی خود را وارد کنید (به تون):",
         "ru": "💰 Пожалуйста, введите цену вашего объявления (в тонах):",
-        "en": "💰 Please enter your ad price (in Tons):"
+        "en": "💰 Please enter your ad price (in TON):"
     },
     "invalid_price": {
         "fa": "❌ قیمت وارد شده معتبر نیست. لطفاً یک عدد وارد کنید.",
