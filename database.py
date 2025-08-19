@@ -49,6 +49,12 @@ class Database:
             except:
                 pass  # Column already exists
             
+            # Add refund_status column if it doesn't exist
+            try:
+                await db.execute("ALTER TABLE ads ADD COLUMN refund_status TEXT DEFAULT 'not_refunded'")
+            except:
+                pass  # Column already exists
+            
             # Support requests table
             await db.execute("""
                 CREATE TABLE IF NOT EXISTS support_requests (
@@ -206,14 +212,16 @@ class Database:
             return [dict(row) for row in rows]
     
     async def get_user_by_id(self, user_id: int) -> Optional[Dict[str, Any]]:
-        """Get user by ID with stats"""
+        """Get user by ID with stats including star payments and refunds"""
         async with aiosqlite.connect(self.db_path) as db:
             db.row_factory = aiosqlite.Row
             cursor = await db.execute("""
                 SELECT u.*, 
                        COUNT(DISTINCT a.id) as total_ads,
                        COUNT(DISTINCT CASE WHEN a.status = 'approved' THEN a.id END) as approved_ads,
-                       COUNT(DISTINCT sr.id) as support_requests
+                       COUNT(DISTINCT sr.id) as support_requests,
+                       COALESCE(SUM(CASE WHEN a.payment_status = 'paid' AND a.telegram_payment_charge_id IS NOT NULL THEN a.price ELSE 0 END), 0) as total_stars_paid,
+                       COALESCE(SUM(CASE WHEN a.status = 'rejected' AND a.payment_status = 'paid' AND a.refund_status = 'refunded' THEN a.price ELSE 0 END), 0) as total_stars_refunded
                 FROM users u
                 LEFT JOIN ads a ON u.user_id = a.user_id
                 LEFT JOIN support_requests sr ON u.user_id = sr.user_id
@@ -270,3 +278,17 @@ class Database:
             """, (user_id,))
             row = await cursor.fetchone()
             return row if row else None
+    
+    async def get_all_paid_ads(self) -> List[Dict[str, Any]]:
+        """Get all paid ads with telegram_payment_charge_id"""
+        async with aiosqlite.connect(self.db_path) as db:
+            db.row_factory = aiosqlite.Row
+            cursor = await db.execute("""
+                SELECT a.*, u.username, u.first_name, u.last_name
+                FROM ads a
+                JOIN users u ON a.user_id = u.user_id
+                WHERE a.payment_status = 'paid' AND a.telegram_payment_charge_id IS NOT NULL
+                ORDER BY a.created_at DESC
+            """)
+            rows = await cursor.fetchall()
+            return [dict(row) for row in rows]

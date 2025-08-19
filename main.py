@@ -441,7 +441,22 @@ async def approve_ad(callback: CallbackQuery):
         await bot.send_message(CHANNEL_ID, channel_message, parse_mode='HTML')
         
         # Notify user
-        await bot.send_message(ad_data['user_id'], AD_APPROVED_MESSAGE)
+        user_language = await db.get_user_language(ad_data['user_id'])
+        user_message = get_text('ad_approved', user_language, channel_name=CHANNEL_NAME)
+        await bot.send_message(ad_data['user_id'], user_message)
+        
+        # Send log to super admin if approved by support admin
+        if callback.from_user.id == SUPPORT_ADMIN_ID and SUPER_ADMIN_ID != SUPPORT_ADMIN_ID:
+            admin_log = f"""✅ آگهی تایید شد
+
+📝 لینک: {ad_data['gift_link']}
+📄 توضیحات: {description}
+💰 قیمت: {ad_data['price']} TON
+👤 کاربر: {ad_data['first_name'] or ''} {ad_data['last_name'] or ''} (@{ad_data['username'] or 'ندارد'})
+🆔 ID: {ad_data['user_id']}
+👨‍💼 تایید شده توسط: {callback.from_user.first_name or ''} ({callback.from_user.id})
+📅 تاریخ: {ad_data['created_at']}"""
+            await bot.send_message(SUPER_ADMIN_ID, admin_log)
         
         # Update admin message
         await callback.message.edit_text(
@@ -561,6 +576,22 @@ async def process_rejection_reason(message: Message, state: FSMContext):
     user_message = f"{AD_REJECTED_MESSAGE}\n\n📝 دلیل رد: {rejection_reason}{refund_status}"
     await bot.send_message(ad_data['user_id'], user_message)
     
+    # Send log to super admin if rejected by support admin
+    if message.from_user.id == SUPPORT_ADMIN_ID and SUPER_ADMIN_ID != SUPPORT_ADMIN_ID:
+        description = ad_data.get('description', 'توضیحات ندارد')
+        admin_log = f"""❌ آگهی رد شد
+
+📝 لینک: {ad_data['gift_link']}
+📄 توضیحات: {description}
+💰 قیمت: {ad_data['price']} TON
+👤 کاربر: {ad_data['first_name'] or ''} {ad_data['last_name'] or ''} (@{ad_data['username'] or 'ندارد'})
+🆔 ID: {ad_data['user_id']}
+📝 دلیل رد: {rejection_reason}
+💸 ریفاند: {'بله' if with_refund else 'خیر'}
+👨‍💼 رد شده توسط: {message.from_user.first_name or ''} ({message.from_user.id})
+📅 تاریخ: {ad_data['created_at']}{refund_status}"""
+        await bot.send_message(SUPER_ADMIN_ID, admin_log)
+    
     # Confirm to admin
     admin_message = f"✅ آگهی با موفقیت رد شد.\n📝 دلیل: {rejection_reason}{refund_status}"
     await message.reply(admin_message)
@@ -677,6 +708,11 @@ async def process_admin_response(message: Message, state: FSMContext):
         user_message = f"📩 {get_text('admin_response_title', user_language)}\n\n{response_text}"
         await bot.send_message(original_request['user_id'], user_message)
         
+        # Send log to super admin if response is from support admin
+        if message.from_user.id == SUPPORT_ADMIN_ID and SUPER_ADMIN_ID != SUPPORT_ADMIN_ID:
+            admin_log = f"📩 پاسخ پشتیبانی ارسال شد\n\n👤 کاربر: {original_request['user_id']}\n📝 پیام اصلی: {original_request['message']}\n💬 پاسخ ادمین: {response_text}\n👨‍💼 پاسخ داده شده توسط: {message.from_user.first_name or ''} ({message.from_user.id})\n📅 تاریخ: {original_request['created_at']}"
+            await bot.send_message(SUPER_ADMIN_ID, admin_log)
+        
         await message.answer(get_text('response_sent', 'fa'))
     else:
         await message.answer(get_text('error_sending_response', 'fa'))
@@ -774,6 +810,7 @@ async def super_admin_panel(message: Message):
         [InlineKeyboardButton(text="👥 لیست کاربران", callback_data="list_users")],
         [InlineKeyboardButton(text="🔍 جستجوی کاربر", callback_data="search_user")],
         [InlineKeyboardButton(text="👤 دیدن اطلاعات کاربر", callback_data="view_user_info")],
+        [InlineKeyboardButton(text="💰 ریفاند کلی استارز", callback_data="refund_all_stars")],
         [InlineKeyboardButton(text="📊 آمار تفصیلی", callback_data="detailed_stats")]
     ]
     
@@ -874,7 +911,10 @@ async def show_user_info(callback: CallbackQuery):
     info_text += f"📊 آمار:\n"
     info_text += f"📝 کل آگهی‌ها: {user_info['total_ads']}\n"
     info_text += f"✅ آگهی‌های تایید شده: {user_info['approved_ads']}\n"
-    info_text += f"🆘 درخواست‌های پشتیبانی: {user_info['support_requests']}\n"
+    info_text += f"🆘 درخواست‌های پشتیبانی: {user_info['support_requests']}\n\n"
+    info_text += f"💰 اطلاعات مالی:\n"
+    info_text += f"⭐ کل استارز پرداخت شده: {user_info['total_stars_paid']}\n"
+    info_text += f"💸 کل استارز ریفاند شده: {user_info['total_stars_refunded']}\n"
     
     # Add back button
     back_keyboard = [[InlineKeyboardButton(text="🔙 بازگشت به لیست کاربران", callback_data="view_user_info")]]
@@ -909,7 +949,10 @@ async def process_user_search(message: Message, state: FSMContext):
         info_text += f"📊 آمار:\n"
         info_text += f"📝 کل آگهی‌ها: {user_info['total_ads']}\n"
         info_text += f"✅ آگهی‌های تایید شده: {user_info['approved_ads']}\n"
-        info_text += f"🆘 درخواست‌های پشتیبانی: {user_info['support_requests']}\n"
+        info_text += f"🆘 درخواست‌های پشتیبانی: {user_info['support_requests']}\n\n"
+        info_text += f"💰 اطلاعات مالی:\n"
+        info_text += f"⭐ کل استارز پرداخت شده: {user_info['total_stars_paid']}\n"
+        info_text += f"💸 کل استارز ریفاند شده: {user_info['total_stars_refunded']}\n"
         
         await message.answer(info_text)
         
@@ -917,6 +960,91 @@ async def process_user_search(message: Message, state: FSMContext):
         await message.answer("❌ لطفاً یک عدد معتبر وارد کنید.")
     
     await state.clear()
+
+@dp.callback_query(F.data == "refund_all_stars")
+async def refund_all_stars_handler(callback: CallbackQuery):
+    """Handle refund all stars request"""
+    if callback.from_user.id != SUPER_ADMIN_ID:
+        await callback.answer("دسترسی ندارید.", show_alert=True)
+        return
+    
+    # Get all paid ads with telegram_payment_charge_id
+    paid_ads = await db.get_all_paid_ads()
+    
+    if not paid_ads:
+        await callback.answer("هیچ آگهی پرداخت شده‌ای برای ریفاند وجود ندارد.", show_alert=True)
+        return
+    
+    # Show confirmation message
+    confirmation_text = f"⚠️ هشدار: آیا مطمئن هستید که می‌خواهید تمام {len(paid_ads)} پرداخت را ریفاند کنید؟\n\n"
+    confirmation_text += "این عمل غیرقابل بازگشت است!"
+    
+    keyboard = [
+        [InlineKeyboardButton(text="✅ بله، ریفاند کن", callback_data="confirm_refund_all")],
+        [InlineKeyboardButton(text="❌ انصراف", callback_data="cancel_refund_all")]
+    ]
+    
+    await callback.message.edit_text(confirmation_text, reply_markup=InlineKeyboardMarkup(inline_keyboard=keyboard))
+    await callback.answer()
+
+@dp.callback_query(F.data == "confirm_refund_all")
+async def confirm_refund_all_handler(callback: CallbackQuery):
+    """Confirm and execute refund all stars"""
+    if callback.from_user.id != SUPER_ADMIN_ID:
+        await callback.answer("دسترسی ندارید.", show_alert=True)
+        return
+    
+    await callback.message.edit_text("🔄 در حال ریفاند تمام استارزها... لطفاً صبر کنید.")
+    
+    # Get all paid ads
+    paid_ads = await db.get_all_paid_ads()
+    
+    success_count = 0
+    failed_count = 0
+    total_count = len(paid_ads)
+    
+    for ad in paid_ads:
+        try:
+            if ad['telegram_payment_charge_id']:
+                # Refund the stars
+                refund_result = await bot.refund_star_payment(
+                    user_id=ad['user_id'],
+                    telegram_payment_charge_id=ad['telegram_payment_charge_id']
+                )
+                
+                if refund_result:
+                    success_count += 1
+                    logger.info(f"Successfully refunded stars for ad {ad['id']} (user {ad['user_id']})")
+                else:
+                    failed_count += 1
+                    logger.error(f"Failed to refund stars for ad {ad['id']} (user {ad['user_id']})")
+            else:
+                failed_count += 1
+                logger.error(f"No payment charge ID for ad {ad['id']}")
+                
+        except Exception as e:
+            failed_count += 1
+            logger.error(f"Error refunding stars for ad {ad['id']}: {e}")
+    
+    # Show results
+    result_text = f"✅ ریفاند کلی استارز تکمیل شد!\n\n"
+    result_text += f"📊 نتایج:\n"
+    result_text += f"✅ موفق: {success_count}\n"
+    result_text += f"❌ ناموفق: {failed_count}\n"
+    result_text += f"📝 کل: {total_count}"
+    
+    await callback.message.edit_text(result_text)
+    await callback.answer()
+
+@dp.callback_query(F.data == "cancel_refund_all")
+async def cancel_refund_all_handler(callback: CallbackQuery):
+    """Cancel refund all operation"""
+    if callback.from_user.id != SUPER_ADMIN_ID:
+        await callback.answer("دسترسی ندارید.", show_alert=True)
+        return
+    
+    await callback.message.edit_text("❌ عملیات ریفاند کلی لغو شد.")
+    await callback.answer()
 
 async def main():
     """Main function"""

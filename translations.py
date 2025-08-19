@@ -130,9 +130,9 @@ TRANSLATIONS = {
         "en": "✅ Your ad has been successfully submitted for review."
     },
     "ad_approved": {
-        "fa": "🎉 آگهی شما تایید شد و در کانال منتشر شد!",
-        "ru": "🎉 Ваше объявление одобрено и опубликовано в канале!",
-        "en": "🎉 Your ad has been approved and published in the channel!"
+        "fa": "🎉 آگهی شما تایید و در کانال {channel_name} منتشر شد!",
+        "ru": "🎉 Ваше объявление одобрено и опубликовано в канале {channel_name}!",
+        "en": "🎉 Your ad has been approved and published in the {channel_name} channel!"
     },
     "ad_rejected": {
         "fa": "❌ متأسفانه آگهی شما رد شد.",
