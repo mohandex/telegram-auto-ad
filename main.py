@@ -251,8 +251,12 @@ async def process_gift_link(message: Message, state: FSMContext):
         await message.answer(get_text('invalid_link', language))
         return
     
-    # Store gift link and language
-    user_ads[message.from_user.id] = {'gift_link': gift_link, 'language': language}
+    # Store gift link, language, and link type
+    user_ads[message.from_user.id] = {
+        'gift_link': gift_link, 
+        'language': language,
+        'is_channel': is_channel
+    }
     
     await message.answer(
         get_text('description_request', language),
@@ -332,13 +336,19 @@ async def process_price(message: Message, state: FSMContext):
     
     user_ads[user_id]['price'] = price
     
-    # Ask for channel photo
-    await message.answer(
-        get_text('channel_photo_request', language),
-        reply_markup=get_channel_photo_keyboard(language)
-    )
+    # Check if it's a channel ad to request photo
+    is_channel = user_ads[user_id].get('is_channel', False)
     
-    await state.set_state(AdStates.waiting_for_channel_photo)
+    if is_channel:
+        # Ask for channel photo
+        await message.answer(
+            get_text('channel_photo_request', language),
+            reply_markup=get_channel_photo_keyboard(language)
+        )
+        await state.set_state(AdStates.waiting_for_channel_photo)
+    else:
+        # Skip photo for gift ads and go directly to preview
+        await show_ad_preview(message, state, user_id, language)
 
 @dp.message(StateFilter(AdStates.waiting_for_channel_photo))
 async def process_channel_photo(message: Message, state: FSMContext):
