@@ -36,11 +36,18 @@ class Database:
                     description TEXT DEFAULT 'توضیحات ندارد',
                     status TEXT DEFAULT 'pending',
                     payment_status TEXT DEFAULT 'unpaid',
+                    telegram_payment_charge_id TEXT,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     approved_at TIMESTAMP,
                     FOREIGN KEY (user_id) REFERENCES users (user_id)
                 )
             """)
+            
+            # Add telegram_payment_charge_id column if it doesn't exist
+            try:
+                await db.execute("ALTER TABLE ads ADD COLUMN telegram_payment_charge_id TEXT")
+            except:
+                pass  # Column already exists
             
             # Support requests table
             await db.execute("""
@@ -71,13 +78,13 @@ class Database:
             """, (user_id, username, first_name, last_name, language_code, is_bot, is_premium, language))
             await db.commit()
     
-    async def create_ad(self, user_id: int, gift_link: str, price: str, description: str = 'توضیحات ندارد') -> int:
+    async def create_ad(self, user_id: int, gift_link: str, price: str, description: str = 'توضیحات ندارد', telegram_payment_charge_id: str = None) -> int:
         """Create a new ad and return its ID"""
         async with aiosqlite.connect(self.db_path) as db:
             cursor = await db.execute("""
-                INSERT INTO ads (user_id, gift_link, price, description)
-                VALUES (?, ?, ?, ?)
-            """, (user_id, gift_link, price, description))
+                INSERT INTO ads (user_id, gift_link, price, description, telegram_payment_charge_id)
+                VALUES (?, ?, ?, ?, ?)
+            """, (user_id, gift_link, price, description, telegram_payment_charge_id))
             await db.commit()
             return cursor.lastrowid
     

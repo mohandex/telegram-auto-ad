@@ -8,6 +8,7 @@ from aiogram.types import (
     Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton,
     LabeledPrice, PreCheckoutQuery, ContentType, ReplyKeyboardMarkup, KeyboardButton
 )
+# RefundStarPayment is available through bot methods
 from aiogram.filters import Command, StateFilter
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
@@ -322,7 +323,11 @@ async def process_successful_payment(message: Message, state: FSMContext):
     ad_data = user_ads[user_id]
     language = ad_data.get('language', 'fa')
     description = ad_data.get('description', 'توضیحات ندارد')
-    ad_id = await db.create_ad(user_id, ad_data['gift_link'], ad_data['price'], description)
+    
+    # Get telegram_payment_charge_id from successful payment
+    telegram_payment_charge_id = message.successful_payment.telegram_payment_charge_id
+    
+    ad_id = await db.create_ad(user_id, ad_data['gift_link'], ad_data['price'], description, telegram_payment_charge_id)
     await db.update_payment_status(ad_id, 'paid')
     
     # Clean up user data
@@ -449,9 +454,10 @@ async def approve_ad(callback: CallbackQuery):
     
     await callback.answer("آگهی تایید شد.")
 
-@dp.callback_query(F.data.startswith("reject_"))
+@dp.callback_query(F.data.startswith("reject_") & ~F.data.startswith("reject_refund_") & ~F.data.startswith("reject_no_refund_"))
 async def reject_ad(callback: CallbackQuery, state: FSMContext):
     """Start rejection process - ask for reason"""
+    logger.info(f"reject_ad called with data: {callback.data}")
     if callback.from_user.id not in [SUPPORT_ADMIN_ID, SUPER_ADMIN_ID]:
         await callback.answer("شما مجاز به انجام این عمل نیستید.", show_alert=True)
         return
@@ -467,7 +473,47 @@ async def reject_ad(callback: CallbackQuery, state: FSMContext):
     await state.update_data(rejecting_ad_id=ad_id)
     await state.set_state(AdminStates.waiting_for_rejection_reason)
     
-    # Ask for rejection reason
+    # Ask for rejection reason with refund option
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="💰 رد با ریفاند", callback_data=f"reject_refund_{ad_id}")],
+        [InlineKeyboardButton(text="❌ رد بدون ریفاند", callback_data=f"reject_no_refund_{ad_id}")]
+    ])
+    
+    await callback.message.reply(
+        "لطفاً نوع رد آگهی را انتخاب کنید:",
+        reply_markup=keyboard
+    )
+    await callback.answer()
+
+@dp.callback_query(F.data.startswith("reject_refund_"))
+async def reject_ad_with_refund(callback: CallbackQuery, state: FSMContext):
+    """Reject ad with refund"""
+    logger.info(f"reject_ad_with_refund called with data: {callback.data}")
+    if callback.from_user.id not in [SUPPORT_ADMIN_ID, SUPER_ADMIN_ID]:
+        await callback.answer("شما مجاز به انجام این عمل نیستید.", show_alert=True)
+        return
+    
+    ad_id = int(callback.data.split("_")[2])
+    logger.info(f"Processing refund rejection for ad_id: {ad_id}")
+    await state.update_data(rejecting_ad_id=ad_id, with_refund=True)
+    await state.set_state(AdminStates.waiting_for_rejection_reason)
+    
+    await callback.message.reply("لطفاً دلیل رد آگهی را وارد کنید (یا 'بدون توضیح' بنویسید):")
+    await callback.answer()
+
+@dp.callback_query(F.data.startswith("reject_no_refund_"))
+async def reject_ad_without_refund(callback: CallbackQuery, state: FSMContext):
+    """Reject ad without refund"""
+    logger.info(f"reject_ad_without_refund called with data: {callback.data}")
+    if callback.from_user.id not in [SUPPORT_ADMIN_ID, SUPER_ADMIN_ID]:
+        await callback.answer("شما مجاز به انجام این عمل نیستید.", show_alert=True)
+        return
+    
+    ad_id = int(callback.data.split("_")[3])  # reject_no_refund_123 -> index 3
+    logger.info(f"Processing no-refund rejection for ad_id: {ad_id}")
+    await state.update_data(rejecting_ad_id=ad_id, with_refund=False)
+    await state.set_state(AdminStates.waiting_for_rejection_reason)
+    
     await callback.message.reply("لطفاً دلیل رد آگهی را وارد کنید (یا 'بدون توضیح' بنویسید):")
     await callback.answer()
 
@@ -478,9 +524,10 @@ async def process_rejection_reason(message: Message, state: FSMContext):
         await message.reply("شما مجاز به انجام این عمل نیستید.")
         return
     
-    # Get stored ad_id
+    # Get stored ad_id and refund option
     data = await state.get_data()
     ad_id = data.get('rejecting_ad_id')
+    with_refund = data.get('with_refund', False)
     
     if not ad_id:
         await message.reply("خطا: شناسه آگهی یافت نشد.")
@@ -501,15 +548,46 @@ async def process_rejection_reason(message: Message, state: FSMContext):
     # Update ad status
     await db.update_ad_status(ad_id, 'rejected')
     
-    # Notify user with reason
-    user_message = f"{AD_REJECTED_MESSAGE}\n\n📝 دلیل رد: {rejection_reason}"
+    # Handle refund if requested
+    refund_status = ""
+    if with_refund:
+        refund_success = await refund_stars(ad_id)
+        if refund_success:
+            refund_status = "\n💰 استارز با موفقیت بازگردانده شد."
+        else:
+            refund_status = "\n❌ خطا در بازگرداندن استارز."
+    
+    # Notify user with reason and refund status
+    user_message = f"{AD_REJECTED_MESSAGE}\n\n📝 دلیل رد: {rejection_reason}{refund_status}"
     await bot.send_message(ad_data['user_id'], user_message)
     
     # Confirm to admin
-    await message.reply(f"✅ آگهی با موفقیت رد شد.\n📝 دلیل: {rejection_reason}")
+    admin_message = f"✅ آگهی با موفقیت رد شد.\n📝 دلیل: {rejection_reason}{refund_status}"
+    await message.reply(admin_message)
     
     # Clear state
     await state.clear()
+
+async def refund_stars(ad_id: int) -> bool:
+    """Refund stars for rejected ad"""
+    try:
+        ad_data = await db.get_ad(ad_id)
+        if not ad_data or not ad_data.get('telegram_payment_charge_id'):
+            logger.error(f"Cannot refund ad {ad_id}: No payment charge ID found")
+            return False
+        
+        # Refund the stars using Bot API method
+        refund_result = await bot.refund_star_payment(
+            user_id=ad_data['user_id'],
+            telegram_payment_charge_id=ad_data['telegram_payment_charge_id']
+        )
+        
+        logger.info(f"Stars refunded successfully for ad {ad_id}")
+        return True
+        
+    except Exception as e:
+        logger.error(f"Error refunding stars for ad {ad_id}: {e}")
+        return False
 
 # Support handlers
 @dp.message(F.text.in_(["🆘 پشتیبانی", "🆘 Поддержка", "🆘 Support"]))
