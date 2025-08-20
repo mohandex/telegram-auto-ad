@@ -213,6 +213,214 @@ async def change_language_handler(message: Message, state: FSMContext):
     )
     await state.set_state(AdStates.waiting_for_language)
 
+@dp.message(F.text.in_(["📋 آگهی‌های من", "📋 Мои объявления", "📋 My Ads"]))
+async def my_ads_handler(message: Message, state: FSMContext):
+    """Handle my ads button"""
+    user_id = message.from_user.id
+    user = await db.get_user(user_id)
+    language = user.get('language', 'fa') if user else 'fa'
+    
+    # Get user's ads
+    user_ads = await db.get_user_ads(user_id)
+    
+    if not user_ads:
+        await message.answer(
+            get_text('no_ads_found', language),
+            reply_markup=get_back_keyboard(language)
+        )
+        return
+    
+    # Show ads with management buttons
+    await message.answer(get_text('my_ads_title', language))
+    
+    for ad in user_ads:
+        # Create ad text
+        status_text = get_text('ad_status_sold', language) if ad.get('sold_status') == 'sold' else get_text('ad_status_available', language)
+        ad_text = f"🆔 ID: {ad['id']}\n"
+        ad_text += f"🎁 {ad['gift_link']}\n"
+        ad_text += f"💰 {get_text('price', language)}: {ad['price']}\n"
+        ad_text += f"📝 {get_text('description', language)}: {ad['description']}\n"
+        ad_text += f"📊 {get_text('status', language)}: {ad['status']}\n"
+        ad_text += f"🔄 {status_text}\n"
+        ad_text += f"📅 {ad['created_at'][:10]}"
+        
+        # Create inline keyboard for ad management
+        keyboard = []
+        if ad.get('sold_status') == 'sold':
+            keyboard.append([InlineKeyboardButton(
+                text=get_text('mark_as_available_button', language),
+                callback_data=f"mark_available_{ad['id']}"
+            )])
+        else:
+            keyboard.append([InlineKeyboardButton(
+                text=get_text('mark_as_sold_button', language),
+                callback_data=f"mark_sold_{ad['id']}"
+            )])
+        
+        await message.answer(
+            ad_text,
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=keyboard)
+        )
+    
+    await state.clear()
+
+@dp.callback_query(F.data.startswith("mark_sold_"))
+async def mark_ad_as_sold(callback: CallbackQuery):
+    """Mark ad as sold"""
+    ad_id = int(callback.data.split("_")[2])
+    user_id = callback.from_user.id
+    
+    # Get user language
+    user = await db.get_user(user_id)
+    language = user.get('language', 'fa') if user else 'fa'
+    
+    # Verify ad belongs to user
+    ad = await db.get_ad(ad_id)
+    if not ad or ad['user_id'] != user_id:
+        await callback.answer(get_text('no_permission', language), show_alert=True)
+        return
+    
+    # Update sold status
+    await db.update_sold_status(ad_id, 'sold')
+    
+    # Update channel message if ad is approved
+    if ad['status'] == 'approved':
+        await update_channel_ad_text(ad_id, 'sold')
+    
+    await callback.answer(get_text('mark_as_sold_success', language), show_alert=True)
+    
+    # Refresh the ad display
+    await refresh_ad_display(callback, ad_id, language)
+
+@dp.callback_query(F.data.startswith("mark_available_"))
+async def mark_ad_as_available(callback: CallbackQuery):
+    """Mark ad as available"""
+    ad_id = int(callback.data.split("_")[2])
+    user_id = callback.from_user.id
+    
+    # Get user language
+    user = await db.get_user(user_id)
+    language = user.get('language', 'fa') if user else 'fa'
+    
+    # Verify ad belongs to user
+    ad = await db.get_ad(ad_id)
+    if not ad or ad['user_id'] != user_id:
+        await callback.answer(get_text('no_permission', language), show_alert=True)
+        return
+    
+    # Update sold status
+    await db.update_sold_status(ad_id, 'available')
+    
+    # Update channel message if ad is approved
+    if ad['status'] == 'approved':
+        await update_channel_ad_text(ad_id, 'available')
+    
+    await callback.answer(get_text('mark_as_available_success', language), show_alert=True)
+    
+    # Refresh the ad display
+    await refresh_ad_display(callback, ad_id, language)
+
+async def refresh_ad_display(callback: CallbackQuery, ad_id: int, language: str):
+    """Refresh the ad display after status change"""
+    ad = await db.get_ad(ad_id)
+    if not ad:
+        return
+    
+    # Create updated ad text
+    status_text = get_text('ad_status_sold', language) if ad.get('sold_status') == 'sold' else get_text('ad_status_available', language)
+    ad_text = f"🆔 ID: {ad['id']}\n"
+    ad_text += f"🎁 {ad['gift_link']}\n"
+    ad_text += f"💰 {get_text('price', language)}: {ad['price']}\n"
+    ad_text += f"📝 {get_text('description', language)}: {ad['description']}\n"
+    ad_text += f"📊 {get_text('status', language)}: {ad['status']}\n"
+    ad_text += f"🔄 {status_text}\n"
+    ad_text += f"📅 {ad['created_at'][:10]}"
+    
+    # Create updated inline keyboard
+    keyboard = []
+    if ad.get('sold_status') == 'sold':
+        keyboard.append([InlineKeyboardButton(
+            text=get_text('mark_as_available_button', language),
+            callback_data=f"mark_available_{ad['id']}"
+        )])
+    else:
+        keyboard.append([InlineKeyboardButton(
+            text=get_text('mark_as_sold_button', language),
+            callback_data=f"mark_sold_{ad['id']}"
+        )])
+    
+    try:
+        await callback.message.edit_text(
+            ad_text,
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=keyboard)
+        )
+    except:
+        pass  # Message might be the same
+
+async def update_channel_ad_text(ad_id: int, sold_status: str):
+    """Update the ad text in the channel to show sold status"""
+    ad = await db.get_ad(ad_id)
+    if not ad or ad['status'] != 'approved' or not ad.get('channel_message_id'):
+        return
+    
+    try:
+        # Determine if it's a gift or channel for channel message
+        gift_link = ad.get('gift_link') or 'لینک ندارد'
+        is_gift = '/nft/' in gift_link if gift_link != 'لینک ندارد' else False
+        
+        # Get description
+        description = ad.get('description') or 'توضیحات ندارد'
+        description_text = f"\n📝 {description}" if description and description != 'توضیحات ندارد' else ""
+        
+        # Handle all fields safely
+        username = ad.get('username') or 'ناشناس'
+        gift_link = ad.get('gift_link') or 'لینک ندارد'
+        price = ad.get('price') or '0'
+        
+        # Add sold status to message
+        sold_text = "\n\n🔴 SOLD" if sold_status == 'sold' else ""
+        
+        if is_gift:
+            # Gift message
+            channel_message = f"""🎁 {gift_link}
+💰 Price: {price} TON
+👤 Seller: @{username}{description_text}
+
+📢 Ad posted on {CHANNEL_NAME}
+
+⚠️ Only trade on trusted marketplaces like <a href="https://t.me/portals/market?startapp=d15jj7">Portals</a>, <a href="https://t.me/tonnel_network_bot/gifts?startapp=ref_195742142">Tonnel</a>, and <a href="https://t.me/mrkt/app?startapp=195742142">Mrkt</a>!{sold_text}"""
+        else:
+            # Channel message
+            channel_message = f"""📺 {gift_link}
+💰 Price: {price} TON
+👤 Seller: @{username}{description_text}
+
+📢 Ad posted on {CHANNEL_NAME}
+
+⚠️ Please verify the channel before joining!{sold_text}"""
+        
+        # Update the channel message
+        channel_photo = ad.get('channel_photo')
+        if channel_photo:
+            await bot.edit_message_caption(
+                chat_id=CHANNEL_ID,
+                message_id=ad['channel_message_id'],
+                caption=channel_message,
+                parse_mode='HTML'
+            )
+        else:
+            await bot.edit_message_text(
+                chat_id=CHANNEL_ID,
+                message_id=ad['channel_message_id'],
+                text=channel_message,
+                parse_mode='HTML'
+            )
+        
+        logger.info(f"Updated channel message for ad {ad_id} with sold status: {sold_status}")
+        
+    except Exception as e:
+        logger.error(f"Error updating channel message for ad {ad_id}: {e}")
+
 @dp.message(StateFilter(AdStates.waiting_for_gift_link))
 async def process_gift_link(message: Message, state: FSMContext):
     """Process gift link input"""
@@ -619,9 +827,12 @@ async def approve_ad(callback: CallbackQuery):
         # Send to channel with photo if available
         channel_photo = ad_data.get('channel_photo')
         if channel_photo:
-            await bot.send_photo(CHANNEL_ID, photo=channel_photo, caption=channel_message, parse_mode='HTML')
+            channel_msg = await bot.send_photo(CHANNEL_ID, photo=channel_photo, caption=channel_message, parse_mode='HTML')
         else:
-            await bot.send_message(CHANNEL_ID, channel_message, parse_mode='HTML')
+            channel_msg = await bot.send_message(CHANNEL_ID, channel_message, parse_mode='HTML')
+        
+        # Store channel message ID for future updates
+        await db.update_channel_message_id(ad_id, channel_msg.message_id)
         
         # Notify user
         user_language = await db.get_user_language(ad_data['user_id'])

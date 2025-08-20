@@ -67,6 +67,18 @@ class Database:
             except:
                 pass  # Column already exists
             
+            # Add sold_status column if it doesn't exist
+            try:
+                await db.execute("ALTER TABLE ads ADD COLUMN sold_status TEXT DEFAULT 'available'")
+            except:
+                pass  # Column already exists
+            
+            # Add channel_message_id column if it doesn't exist
+            try:
+                await db.execute("ALTER TABLE ads ADD COLUMN channel_message_id INTEGER")
+            except:
+                pass  # Column already exists
+            
             # Support requests table
             await db.execute("""
                 CREATE TABLE IF NOT EXISTS support_requests (
@@ -96,6 +108,24 @@ class Database:
                 )
             """)
             
+            await db.commit()
+    
+    async def update_sold_status(self, ad_id: int, sold_status: str):
+        """Update sold status of an ad"""
+        async with aiosqlite.connect(self.db_path) as db:
+            await db.execute(
+                "UPDATE ads SET sold_status = ? WHERE id = ?",
+                (sold_status, ad_id)
+            )
+            await db.commit()
+    
+    async def update_channel_message_id(self, ad_id: int, message_id: int):
+        """Update channel message ID for an ad"""
+        async with aiosqlite.connect(self.db_path) as db:
+            await db.execute(
+                "UPDATE ads SET channel_message_id = ? WHERE id = ?",
+                (message_id, ad_id)
+            )
             await db.commit()
     
     async def get_latest_payment_charge_id(self, user_id: int) -> Dict[str, Any]:

@@ -47,6 +47,11 @@ TRANSLATIONS = {
         "ru": "🆘 Поддержка",
         "en": "🆘 Support"
     },
+    "my_ads_button": {
+        "fa": "📋 آگهی‌های من",
+        "ru": "📋 Мои объявления",
+        "en": "📋 My Ads"
+    },
     "back_to_menu_button": {
         "fa": "🔙 بازگشت به منو",
         "ru": "🔙 Вернуться в меню",
@@ -501,6 +506,48 @@ TRANSLATIONS = {
         "fa": "توضیحات",
         "ru": "Описание",
         "en": "Description"
+    },
+    
+    # My Ads Management
+    "my_ads_title": {
+        "fa": "📋 آگهی‌های من",
+        "ru": "📋 Мои объявления",
+        "en": "📋 My Ads"
+    },
+    "no_ads_found": {
+        "fa": "شما هیچ آگهی ثبت نکرده‌اید.",
+        "ru": "У вас нет размещенных объявлений.",
+        "en": "You have no posted ads."
+    },
+    "ad_status_available": {
+        "fa": "🟢 موجود",
+        "ru": "🟢 Доступно",
+        "en": "🟢 Available"
+    },
+    "ad_status_sold": {
+        "fa": "🔴 فروش رفت",
+        "ru": "🔴 Продано",
+        "en": "🔴 Sold"
+    },
+    "mark_as_sold_button": {
+        "fa": "🔴 علامت‌گذاری به عنوان فروش رفته",
+        "ru": "🔴 Отметить как проданное",
+        "en": "🔴 Mark as Sold"
+    },
+    "mark_as_available_button": {
+        "fa": "🟢 علامت‌گذاری به عنوان موجود",
+        "ru": "🟢 Отметить как доступное",
+        "en": "🟢 Mark as Available"
+    },
+    "ad_marked_sold": {
+        "fa": "✅ آگهی به عنوان فروش رفته علامت‌گذاری شد و در کانال به‌روزرسانی شد.",
+        "ru": "✅ Объявление отмечено как проданное и обновлено в канале.",
+        "en": "✅ Ad marked as sold and updated in the channel."
+    },
+    "ad_marked_available": {
+        "fa": "✅ آگهی به عنوان موجود علامت‌گذاری شد و در کانال به‌روزرسانی شد.",
+        "ru": "✅ Объявление отмечено как доступное и обновлено в канале.",
+        "en": "✅ Ad marked as available and updated in the channel."
     }
 }
 
@@ -566,9 +613,10 @@ def get_main_menu_keyboard(language='fa'):
         keyboard=[
             [
                 KeyboardButton(text=get_text('new_ad_button', language)),
-                KeyboardButton(text=get_text('support_button', language))
+                KeyboardButton(text=get_text('my_ads_button', language))
             ],
             [
+                KeyboardButton(text=get_text('support_button', language)),
                 KeyboardButton(text=get_text('change_language_button', language))
             ]
         ],
