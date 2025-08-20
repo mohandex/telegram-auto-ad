@@ -133,7 +133,7 @@ class Database:
         async with aiosqlite.connect(self.db_path) as db:
             db.row_factory = aiosqlite.Row
             cursor = await db.execute("""
-                SELECT id, user_id, telegram_payment_charge_id, price, created_at,
+                SELECT id, user_id, telegram_payment_charge_id, price, stars_paid, created_at,
                        CASE WHEN refund_status = 'refunded' THEN 1 ELSE 0 END as refunded
                 FROM ads 
                 WHERE telegram_payment_charge_id = ?

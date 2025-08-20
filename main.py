@@ -1575,16 +1575,16 @@ async def process_refund_by_transaction_id(message: Message, state: FSMContext):
         success_message = get_text('refund_by_transaction_success', language, 
                                  transaction_id=transaction_id,
                                  user_id=payment_data['user_id'], 
-                                 amount=payment_data['price'])
+                                 amount=payment_data['stars_paid'])
         await message.answer(success_message, reply_markup=get_super_admin_keyboard(language))
         
         # Notify user
         target_user = await db.get_user(payment_data['user_id'])
         target_language = target_user.get('language', 'fa') if target_user else 'fa'
-        user_notification = get_text('manual_refund_user_notification', target_language, amount=payment_data['price'])
+        user_notification = get_text('manual_refund_user_notification', target_language, amount=payment_data['stars_paid'])
         await bot.send_message(payment_data['user_id'], user_notification)
         
-        logger.info(f"Refund by transaction ID successful: {payment_data['price']} stars to user {payment_data['user_id']} (Transaction: {transaction_id})")
+        logger.info(f"Refund by transaction ID successful: {payment_data['stars_paid']} stars to user {payment_data['user_id']} (Transaction: {transaction_id})")
         
     except Exception as e:
         error_message = get_text('refund_by_transaction_failed', language, error=str(e))
