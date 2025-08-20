@@ -856,10 +856,22 @@ async def approve_ad(callback: CallbackQuery):
             await bot.send_message(SUPER_ADMIN_ID, admin_log)
         
         # Update admin message
-        current_text = callback.message.text or "آگهی"
-        await callback.message.edit_text(
-            current_text + "\n\n✅ تایید شد و در کانال منتشر شد."
-        )
+        try:
+            if callback.message.text:
+                current_text = callback.message.text
+                await callback.message.edit_text(
+                    current_text + "\n\n✅ تایید شد و در کانال منتشر شد."
+                )
+            elif callback.message.caption:
+                current_caption = callback.message.caption
+                await callback.message.edit_caption(
+                    caption=current_caption + "\n\n✅ تایید شد و در کانال منتشر شد."
+                )
+            else:
+                # If no text or caption, send a new message
+                await callback.message.reply("✅ تایید شد و در کانال منتشر شد.")
+        except Exception as edit_error:
+            logger.error(f"Error updating admin message: {edit_error}")
         
     except Exception as e:
         logger.error(f"Error sending to channel: {e}")
