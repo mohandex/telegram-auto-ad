@@ -30,7 +30,7 @@ BOT_TOKEN = os.getenv('BOT_TOKEN')
 SUPER_ADMIN_ID = int(os.getenv('SUPER_ADMIN_ID'))
 SUPPORT_ADMIN_ID = int(os.getenv('SUPPORT_ADMIN_ID'))
 CHANNEL_ID = os.getenv('CHANNEL_ID')
-CHANNEL_NAME = os.getenv('CHANNEL_NAME')
+CHANNEL_NAME = os.getenv('CHANNEL_NAME', 'کانال آگهی‌ها')
 STARS_AMOUNT = int(os.getenv('STARS_AMOUNT', 10))
 DATABASE_PATH = os.getenv('DATABASE_PATH', 'ads_bot.db')
 
