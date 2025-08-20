@@ -8,7 +8,7 @@ from aiogram.types import (
     Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton,
     LabeledPrice, PreCheckoutQuery, ContentType, ReplyKeyboardMarkup, KeyboardButton
 )
-# RefundStarPayment is available through bot methods
+from aiogram.methods import RefundStarPayment
 from aiogram.filters import Command, StateFilter
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
@@ -251,12 +251,8 @@ async def process_gift_link(message: Message, state: FSMContext):
         await message.answer(get_text('invalid_link', language))
         return
     
-    # Store gift link, language, and link type
-    user_ads[message.from_user.id] = {
-        'gift_link': gift_link, 
-        'language': language,
-        'is_channel': is_channel
-    }
+    # Store gift link and language
+    user_ads[message.from_user.id] = {'gift_link': gift_link, 'language': language}
     
     await message.answer(
         get_text('description_request', language),
@@ -336,19 +332,13 @@ async def process_price(message: Message, state: FSMContext):
     
     user_ads[user_id]['price'] = price
     
-    # Check if it's a channel ad to request photo
-    is_channel = user_ads[user_id].get('is_channel', False)
+    # Ask for channel photo
+    await message.answer(
+        get_text('channel_photo_request', language),
+        reply_markup=get_channel_photo_keyboard(language)
+    )
     
-    if is_channel:
-        # Ask for channel photo
-        await message.answer(
-            get_text('channel_photo_request', language),
-            reply_markup=get_channel_photo_keyboard(language)
-        )
-        await state.set_state(AdStates.waiting_for_channel_photo)
-    else:
-        # Skip photo for gift ads and go directly to preview
-        await show_ad_preview(message, state, user_id, language)
+    await state.set_state(AdStates.waiting_for_channel_photo)
 
 @dp.message(StateFilter(AdStates.waiting_for_channel_photo))
 async def process_channel_photo(message: Message, state: FSMContext):
@@ -803,10 +793,10 @@ async def refund_stars(ad_id: int) -> bool:
             return False
         
         # Refund the stars using Bot API method
-        refund_result = await bot.refund_star_payment(
+        refund_result = await bot(RefundStarPayment(
             user_id=ad_data['user_id'],
             telegram_payment_charge_id=ad_data['telegram_payment_charge_id']
-        )
+        ))
         
         logger.info(f"Stars refunded successfully for ad {ad_id}")
         return True
@@ -1324,10 +1314,10 @@ async def confirm_refund_all_handler(callback: CallbackQuery):
         try:
             if ad['telegram_payment_charge_id']:
                 # Refund the stars
-                refund_result = await bot.refund_star_payment(
+                refund_result = await bot(RefundStarPayment(
                     user_id=ad['user_id'],
                     telegram_payment_charge_id=ad['telegram_payment_charge_id']
-                )
+                ))
                 
                 if refund_result:
                     success_count += 1
