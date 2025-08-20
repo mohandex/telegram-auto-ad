@@ -341,6 +341,86 @@ TRANSLATIONS = {
         "ru": "💰 Возврат всех звезд",
         "en": "💰 Refund All Stars"
     },
+    "manual_refund_button": {
+        "fa": "💸 ریفاند دستی",
+        "ru": "💸 Ручной возврат",
+        "en": "💸 Manual Refund"
+    },
+    "manual_refund_request_user_id": {
+        "fa": "👤 لطفاً ID کاربر را وارد کنید:",
+        "ru": "👤 Пожалуйста, введите ID пользователя:",
+        "en": "👤 Please enter the user ID:"
+    },
+    "manual_refund_request_amount": {
+        "fa": "💰 لطفاً مقدار استارز برای ریفاند را وارد کنید:",
+        "ru": "💰 Пожалуйста, введите количество звезд для возврата:",
+        "en": "💰 Please enter the amount of stars to refund:"
+    },
+    "manual_refund_invalid_user_id": {
+        "fa": "❌ ID کاربر نامعتبر است. لطفاً یک عدد صحیح وارد کنید.",
+        "ru": "❌ Неверный ID пользователя. Пожалуйста, введите правильное число.",
+        "en": "❌ Invalid user ID. Please enter a valid number."
+    },
+    "manual_refund_invalid_amount": {
+        "fa": "❌ مقدار استارز نامعتبر است. لطفاً یک عدد مثبت وارد کنید.",
+        "ru": "❌ Неверное количество звезд. Пожалуйста, введите положительное число.",
+        "en": "❌ Invalid star amount. Please enter a positive number."
+    },
+    "manual_refund_user_not_found": {
+        "fa": "❌ کاربر با این ID یافت نشد.",
+        "ru": "❌ Пользователь с этим ID не найден.",
+        "en": "❌ User with this ID not found."
+    },
+    "manual_refund_no_payment_history": {
+        "fa": "❌ این کاربر هیچ تاریخچه پرداختی ندارد.",
+        "ru": "❌ У этого пользователя нет истории платежей.",
+        "en": "❌ This user has no payment history."
+    },
+    "manual_refund_success": {
+        "fa": "✅ ریفاند دستی با موفقیت انجام شد.\n👤 کاربر: {user_id}\n💰 مقدار: {amount} استارز",
+        "ru": "✅ Ручной возврат успешно выполнен.\n👤 Пользователь: {user_id}\n💰 Сумма: {amount} звезд",
+        "en": "✅ Manual refund completed successfully.\n👤 User: {user_id}\n💰 Amount: {amount} stars"
+    },
+    "manual_refund_failed": {
+        "fa": "❌ خطا در انجام ریفاند دستی: {error}",
+        "ru": "❌ Ошибка при выполнении ручного возврата: {error}",
+        "en": "❌ Error performing manual refund: {error}"
+    },
+    "manual_refund_user_notification": {
+        "fa": "💸 ریفاند دستی\n\n✅ {amount} استارز به حساب شما بازگردانده شد.\n\n📝 این ریفاند توسط مدیریت سیستم انجام شده است.",
+        "ru": "💸 Ручной возврат\n\n✅ {amount} звезд возвращено на ваш счет.\n\n📝 Этот возврат был выполнен администрацией системы.",
+        "en": "💸 Manual Refund\n\n✅ {amount} stars have been refunded to your account.\n\n📝 This refund was performed by system administration."
+    },
+    "refund_by_transaction_button": {
+        "fa": "🔍 ریفاند با Transaction ID",
+        "ru": "🔍 Возврат по Transaction ID",
+        "en": "🔍 Refund by Transaction ID"
+    },
+    "refund_by_transaction_request_id": {
+        "fa": "🆔 لطفاً Transaction ID تلگرام را وارد کنید:",
+        "ru": "🆔 Пожалуйста, введите Transaction ID Telegram:",
+        "en": "🆔 Please enter the Telegram Transaction ID:"
+    },
+    "refund_by_transaction_invalid_id": {
+        "fa": "❌ Transaction ID نامعتبر است یا پرداختی با این ID یافت نشد.",
+        "ru": "❌ Неверный Transaction ID или платеж с этим ID не найден.",
+        "en": "❌ Invalid Transaction ID or no payment found with this ID."
+    },
+    "refund_by_transaction_already_refunded": {
+        "fa": "❌ این پرداخت قبلاً ریفاند شده است.",
+        "ru": "❌ Этот платеж уже был возвращен.",
+        "en": "❌ This payment has already been refunded."
+    },
+    "refund_by_transaction_success": {
+        "fa": "✅ ریفاند با Transaction ID موفقیت‌آمیز بود.\n🆔 Transaction ID: {transaction_id}\n👤 کاربر: {user_id}\n💰 مقدار: {amount} استارز",
+        "ru": "✅ Возврат по Transaction ID выполнен успешно.\n🆔 Transaction ID: {transaction_id}\n👤 Пользователь: {user_id}\n💰 Сумма: {amount} звезд",
+        "en": "✅ Refund by Transaction ID completed successfully.\n🆔 Transaction ID: {transaction_id}\n👤 User: {user_id}\n💰 Amount: {amount} stars"
+    },
+    "refund_by_transaction_failed": {
+        "fa": "❌ خطا در ریفاند با Transaction ID: {error}",
+        "ru": "❌ Ошибка при возврате по Transaction ID: {error}",
+        "en": "❌ Error refunding by Transaction ID: {error}"
+    },
     
     # Anti-spam messages
     "spam_cooldown_error": {
@@ -581,7 +661,11 @@ def get_super_admin_keyboard(language='fa'):
                 KeyboardButton(text=get_text('detailed_stats_button', language))
             ],
             [
-                KeyboardButton(text=get_text('refund_all_stars_button', language))
+                KeyboardButton(text=get_text('refund_all_stars_button', language)),
+                KeyboardButton(text=get_text('manual_refund_button', language))
+            ],
+            [
+                KeyboardButton(text=get_text('refund_by_transaction_button', language))
             ],
             [
                 KeyboardButton(text=get_text('back_to_menu_button', language))

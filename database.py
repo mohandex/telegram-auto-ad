@@ -98,6 +98,61 @@ class Database:
             
             await db.commit()
     
+    async def get_latest_payment_charge_id(self, user_id: int) -> Dict[str, Any]:
+        """Get the latest payment charge ID for a user"""
+        async with aiosqlite.connect(self.db_path) as db:
+            db.row_factory = aiosqlite.Row
+            cursor = await db.execute("""
+                SELECT id, telegram_payment_charge_id 
+                FROM ads 
+                WHERE user_id = ? AND telegram_payment_charge_id IS NOT NULL 
+                ORDER BY created_at DESC 
+                LIMIT 1
+            """, (user_id,))
+            row = await cursor.fetchone()
+            return dict(row) if row else None
+    
+    async def get_all_user_payments(self, user_id: int) -> List[Dict[str, Any]]:
+        """
+        Get all payment charge IDs for a user
+        """
+        async with aiosqlite.connect(self.db_path) as db:
+            db.row_factory = aiosqlite.Row
+            cursor = await db.execute("""
+                SELECT id, telegram_payment_charge_id, price, created_at, 
+                       CASE WHEN refund_status = 'refunded' THEN 1 ELSE 0 END as refunded
+                FROM ads 
+                WHERE user_id = ? AND telegram_payment_charge_id IS NOT NULL 
+                ORDER BY created_at DESC
+            """, (user_id,))
+            rows = await cursor.fetchall()
+            return [dict(row) for row in rows] if rows else []
+    
+    async def get_payment_by_charge_id(self, telegram_payment_charge_id: str) -> Dict[str, Any]:
+        """Get payment details by telegram payment charge ID"""
+        async with aiosqlite.connect(self.db_path) as db:
+            db.row_factory = aiosqlite.Row
+            cursor = await db.execute("""
+                SELECT id, user_id, telegram_payment_charge_id, price, created_at,
+                       CASE WHEN refund_status = 'refunded' THEN 1 ELSE 0 END as refunded
+                FROM ads 
+                WHERE telegram_payment_charge_id = ?
+            """, (telegram_payment_charge_id,))
+            row = await cursor.fetchone()
+            return dict(row) if row else None
+    
+    async def update_refund_status(self, ad_id: int, refunded: bool):
+        """
+        Update refund status for an ad
+        """
+        async with aiosqlite.connect(self.db_path) as db:
+            refund_status = 'refunded' if refunded else 'not_refunded'
+            await db.execute(
+                "UPDATE ads SET refund_status = ? WHERE id = ?",
+                (refund_status, ad_id)
+            )
+            await db.commit()
+    
     async def add_user(self, user_id: int, username: str = None, 
                       first_name: str = None, last_name: str = None,
                       language_code: str = None, is_bot: bool = False,

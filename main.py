@@ -73,6 +73,11 @@ class AdminStates(StatesGroup):
     waiting_for_user_id = State()
     waiting_for_rejection_reason = State()
 
+class ManualRefundStates(StatesGroup):
+    waiting_for_user_id = State()
+    waiting_for_amount = State()
+    waiting_for_transaction_id = State()
+
 # User data storage
 user_ads: Dict[int, Dict[str, Any]] = {}
 
@@ -1352,6 +1357,241 @@ async def cancel_refund_all_handler(callback: CallbackQuery):
     
     await callback.message.edit_text("❌ عملیات ریفاند کلی لغو شد.")
     await callback.answer()
+
+# Manual Refund Handlers
+@dp.message(Command('manual_refund'))
+async def manual_refund_command(message: Message, state: FSMContext):
+    """Handle /manual_refund command"""
+    if message.from_user.id != SUPER_ADMIN_ID:
+        return
+    
+    # Get user language
+    user = await db.get_user(message.from_user.id)
+    language = user.get('language', 'fa') if user else 'fa'
+    
+    await message.answer(
+        get_text('manual_refund_request_user_id', language),
+        reply_markup=get_back_keyboard(language)
+    )
+    await state.set_state(ManualRefundStates.waiting_for_user_id)
+
+@dp.message(F.text.in_(["💸 ریفاند دستی", "💸 Ручной возврат", "💸 Manual Refund"]))
+async def manual_refund_button_handler(message: Message, state: FSMContext):
+    """Handle manual refund button"""
+    if message.from_user.id != SUPER_ADMIN_ID:
+        return
+    
+    # Get user language
+    user = await db.get_user(message.from_user.id)
+    language = user.get('language', 'fa') if user else 'fa'
+    
+    await message.answer(
+        get_text('manual_refund_request_user_id', language),
+        reply_markup=get_back_keyboard(language)
+    )
+    await state.set_state(ManualRefundStates.waiting_for_user_id)
+
+@dp.message(StateFilter(ManualRefundStates.waiting_for_user_id))
+async def process_manual_refund_user_id(message: Message, state: FSMContext):
+    """Process user ID for manual refund"""
+    if message.from_user.id != SUPER_ADMIN_ID:
+        return
+    
+    # Get user language
+    user = await db.get_user(message.from_user.id)
+    language = user.get('language', 'fa') if user else 'fa'
+    
+    # Check if back button was pressed
+    if message.text in ["🔙 بازگشت به منو", "🔙 Вернуться в меню", "🔙 Back to Menu"]:
+        await back_to_menu_handler(message, state)
+        return
+    
+    try:
+        user_id = int(message.text)
+    except ValueError:
+        await message.answer(
+            get_text('manual_refund_invalid_user_id', language),
+            reply_markup=get_back_keyboard(language)
+        )
+        return
+    
+    # Check if user exists
+    target_user = await db.get_user(user_id)
+    if not target_user:
+        await message.answer(
+            get_text('manual_refund_user_not_found', language),
+            reply_markup=get_back_keyboard(language)
+        )
+        return
+    
+    # Check if user has payment history
+    user_info = await db.get_user_by_id(user_id)
+    if not user_info or user_info.get('total_stars_paid', 0) == 0:
+        await message.answer(
+            get_text('manual_refund_no_payment_history', language),
+            reply_markup=get_back_keyboard(language)
+        )
+        return
+    
+    # Store user_id and ask for amount
+    await state.update_data(target_user_id=user_id)
+    await message.answer(
+        get_text('manual_refund_request_amount', language),
+        reply_markup=get_back_keyboard(language)
+    )
+    await state.set_state(ManualRefundStates.waiting_for_amount)
+
+@dp.message(StateFilter(ManualRefundStates.waiting_for_amount))
+async def process_manual_refund_amount(message: Message, state: FSMContext):
+    """Process refund amount for manual refund"""
+    if message.from_user.id != SUPER_ADMIN_ID:
+        return
+    
+    # Get user language
+    user = await db.get_user(message.from_user.id)
+    language = user.get('language', 'fa') if user else 'fa'
+    
+    # Check if back button was pressed
+    if message.text in ["🔙 بازگشت به منو", "🔙 Вернуться в меню", "🔙 Back to Menu"]:
+        await back_to_menu_handler(message, state)
+        return
+    
+    try:
+        amount = int(message.text)
+        if amount <= 0:
+            raise ValueError("Amount must be positive")
+    except ValueError:
+        await message.answer(
+            get_text('manual_refund_invalid_amount', language),
+            reply_markup=get_back_keyboard(language)
+        )
+        return
+    
+    # Get stored data
+    data = await state.get_data()
+    target_user_id = data.get('target_user_id')
+    
+    # Get user's latest payment charge ID
+    latest_payment = await db.get_latest_payment_charge_id(target_user_id)
+    if not latest_payment:
+        await message.answer(
+            get_text('manual_refund_no_payment_history', language),
+            reply_markup=get_back_keyboard(language)
+        )
+        await state.clear()
+        return
+    
+    try:
+        # Perform the refund
+        await bot(RefundStarPayment(
+            user_id=target_user_id,
+            telegram_payment_charge_id=latest_payment['telegram_payment_charge_id']
+        ))
+        
+        # Update database
+        await db.update_refund_status(latest_payment['id'], True)
+        
+        # Notify admin of success
+        success_message = get_text('manual_refund_success', language, user_id=target_user_id, amount=amount)
+        await message.answer(success_message, reply_markup=get_super_admin_keyboard(language))
+        
+        # Notify user
+        target_user = await db.get_user(target_user_id)
+        target_language = target_user.get('language', 'fa') if target_user else 'fa'
+        user_notification = get_text('manual_refund_user_notification', target_language, amount=amount)
+        await bot.send_message(target_user_id, user_notification)
+        
+        logger.info(f"Manual refund successful: {amount} stars to user {target_user_id}")
+        
+    except Exception as e:
+        error_message = get_text('manual_refund_failed', language, error=str(e))
+        await message.answer(error_message, reply_markup=get_super_admin_keyboard(language))
+        logger.error(f"Manual refund failed for user {target_user_id}: {e}")
+    
+    await state.clear()
+
+# Refund by Transaction ID Handlers
+@dp.message(F.text.in_(["🔍 ریفاند با Transaction ID", "🔍 Возврат по Transaction ID", "🔍 Refund by Transaction ID"]))
+async def refund_by_transaction_button_handler(message: Message, state: FSMContext):
+    """Handle refund by transaction ID button"""
+    if message.from_user.id != SUPER_ADMIN_ID:
+        return
+    
+    # Get user language
+    user = await db.get_user(message.from_user.id)
+    language = user.get('language', 'fa') if user else 'fa'
+    
+    await message.answer(
+        get_text('refund_by_transaction_request_id', language),
+        reply_markup=get_back_keyboard(language)
+    )
+    await state.set_state(ManualRefundStates.waiting_for_transaction_id)
+
+@dp.message(StateFilter(ManualRefundStates.waiting_for_transaction_id))
+async def process_refund_by_transaction_id(message: Message, state: FSMContext):
+    """Process refund by transaction ID"""
+    if message.from_user.id != SUPER_ADMIN_ID:
+        return
+    
+    # Get user language
+    user = await db.get_user(message.from_user.id)
+    language = user.get('language', 'fa') if user else 'fa'
+    
+    # Check if back button was pressed
+    if message.text in ["🔙 بازگشت به منو", "🔙 Вернуться в меню", "🔙 Back to Menu"]:
+        await back_to_menu_handler(message, state)
+        return
+    
+    transaction_id = message.text.strip()
+    
+    # Get payment details by transaction ID
+    payment_data = await db.get_payment_by_charge_id(transaction_id)
+    if not payment_data:
+        await message.answer(
+            get_text('refund_by_transaction_invalid_id', language),
+            reply_markup=get_back_keyboard(language)
+        )
+        return
+    
+    # Check if already refunded
+    if payment_data.get('refunded', False):
+        await message.answer(
+            get_text('refund_by_transaction_already_refunded', language),
+            reply_markup=get_back_keyboard(language)
+        )
+        return
+    
+    try:
+        # Perform the refund
+        await bot(RefundStarPayment(
+            user_id=payment_data['user_id'],
+            telegram_payment_charge_id=transaction_id
+        ))
+        
+        # Update database
+        await db.update_refund_status(payment_data['id'], True)
+        
+        # Notify admin of success
+        success_message = get_text('refund_by_transaction_success', language, 
+                                 transaction_id=transaction_id,
+                                 user_id=payment_data['user_id'], 
+                                 amount=payment_data['price'])
+        await message.answer(success_message, reply_markup=get_super_admin_keyboard(language))
+        
+        # Notify user
+        target_user = await db.get_user(payment_data['user_id'])
+        target_language = target_user.get('language', 'fa') if target_user else 'fa'
+        user_notification = get_text('manual_refund_user_notification', target_language, amount=payment_data['price'])
+        await bot.send_message(payment_data['user_id'], user_notification)
+        
+        logger.info(f"Refund by transaction ID successful: {payment_data['price']} stars to user {payment_data['user_id']} (Transaction: {transaction_id})")
+        
+    except Exception as e:
+        error_message = get_text('refund_by_transaction_failed', language, error=str(e))
+        await message.answer(error_message, reply_markup=get_super_admin_keyboard(language))
+        logger.error(f"Refund by transaction ID failed for transaction {transaction_id}: {e}")
+    
+    await state.clear()
 
 async def main():
     """Main function"""
